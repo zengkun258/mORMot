@@ -6,7 +6,7 @@ unit SynFPCSock;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -27,7 +27,7 @@ unit SynFPCSock;
   Portions created by Lukas Gebauer are Copyright (C) 2003.
   All Rights Reserved.
 
-  Portions created by Arnaud Bouchez are Copyright (C) 2017 Arnaud Bouchez.
+  Portions created by Arnaud Bouchez are Copyright (C) 2018 Arnaud Bouchez.
   All Rights Reserved.
 
   Contributor(s):
@@ -61,6 +61,10 @@ unit SynFPCSock;
 
 {$MODE DELPHI}
 {$H+}
+
+{$ifdef ANDROID}
+  {$define LINUX} // a Linux-based system
+{$endif}
 
 // BSD definition of scoketaddr
 {$ifdef FREEBSD}
@@ -305,6 +309,7 @@ const
   WSAEPROTONOSUPPORT = EPROTONOSUPPORT;
   WSAHOST_NOT_FOUND = HOST_NOT_FOUND;
   WSAETIMEDOUT = ETIMEDOUT;
+  WSAEMFILE = EMFILE;
 
 {$endif FPC}
 
@@ -406,6 +411,7 @@ const
   SockWship6Api = true;
 
 type
+  PVarSin = ^TVarSin;
   TVarSin = packed record
     {$ifdef SOCK_HAS_SINLEN}
     sin_len: cuchar;
@@ -435,8 +441,6 @@ function SetSockOpt(s: TSocket; level,optname: Integer; optval: pointer;
   optlen: Integer): Integer;
 function GetSockOpt(s: TSocket; level,optname: Integer; optval: pointer;
   var optlen: Integer): Integer;
-function Send(s: TSocket; Buf: pointer; len,flags,timeout: Integer): Integer;
-function Recv(s: TSocket; Buf: pointer; len,flags,timeout: Integer): Integer;
 function SendTo(s: TSocket; Buf: pointer; len,flags: Integer; addrto: TVarSin): Integer;
 function RecvFrom(s: TSocket; Buf: pointer; len,flags: Integer; var from: TVarSin): Integer;
 function ntohs(netshort: word): word;
@@ -460,8 +464,8 @@ function SetVarSin(var Sin: TVarSin; const IP,Port: string;
   Family,SockProtocol,SockType: integer; PreferIP4: Boolean): integer;
 function GetSinIP(const Sin: TVarSin): string;
 function GetSinPort(const Sin: TVarSin): Integer;
-procedure ResolveNameToIP(const Name: string;  Family,SockProtocol,SockType: integer;
-  IPList: TStrings);
+procedure ResolveNameToIP(const Name: AnsiString; Family, SockProtocol, SockType: integer;
+  IPList: TStrings; IPListClear: boolean = true);
 
 const
   // poll() flag when there is data to read
@@ -568,6 +572,8 @@ function epoll_wait(epfd: integer; events: PEPollEvent; maxevents, timeout: inte
 function epoll_close(epfd: integer): integer;
 {$endif Linux}
 
+var
+  SynSockCS: TRTLCriticalSection;
 
 implementation
 
@@ -623,14 +629,8 @@ begin
   with WSData do begin
     wVersion := wVersionRequired;
     wHighVersion := $202;
-    {$ifdef FPC}
-    szDescription := 'Synopse CrossPlatform Socket Layer';
-    szSystemStatus := 'Running on Unix/Linux by FreePascal';
-    {$endif}
-    {$ifdef KYLIX3}
-    {$endif}
-    szDescription := 'Synopse CrossPlatform Socket Layer';
-    szSystemStatus := 'Running on Unix/Linux by Kylix';
+    szDescription := 'Synopse Sockets';
+    szSystemStatus := 'Linux';
     iMaxSockets := 32768;
     iMaxUdpDg := 8192;
   end;
@@ -741,50 +741,6 @@ begin
 end;
 {$endif}
 
-function Send(s: TSocket; Buf: pointer; len,flags,timeout: Integer): Integer;
-var maxTicks: Int64;
-begin
-  maxTicks := GetTickCount64+timeout;
-  repeat
-    {$ifdef KYLIX3}
-    result := LibC.Send(s,Buf^,len,flags);
-    {$else}
-    result := fpSend(s,pointer(Buf),len,flags);
-    {$endif}
-    if result>=0 then
-      exit; // success
-    if timeout<=0 then
-      break;
-    if (errno<>WSATRY_AGAIN) and (errno<>WSAEINTR) then
-      break;
-    sleep(1);
-  until GetTickCount64>maxTicks;
-  writeln('errno Send()=',errno);
-  result := SOCKET_ERROR; 
-end;
-
-function Recv(s: TSocket; Buf: pointer; len,flags,timeout: Integer): Integer;
-var maxTicks: Int64;
-begin
-  maxTicks := GetTickCount64+timeout;
-  repeat
-    {$ifdef KYLIX3}
-    result := LibC.Recv(s,Buf^,len,flags);
-    {$else}
-    result := fpRecv(s,pointer(Buf),len,flags);
-    {$endif}
-    if result>=0 then
-      exit; // success
-    if timeout<=0 then
-      break;
-    if (errno<>WSATRY_AGAIN) and (errno<>WSAEINTR) then
-      break;
-    sleep(1);
-  until GetTickCount64>maxTicks;
-  writeln('errno Recv()=',errno);
-  result := SOCKET_ERROR;
-end;
-
 function SendTo(s: TSocket; Buf: pointer; len,flags: Integer; addrto: TVarSin): Integer;
 begin
   {$ifdef KYLIX3}
@@ -859,7 +815,7 @@ begin
     result := SOCKET_ERROR;
 end;
 
-function  IoctlSocket(s: TSocket; cmd: DWORD; var arg: integer): Integer;
+function IoctlSocket(s: TSocket; cmd: DWORD; var arg: integer): Integer;
 begin
   {$ifdef KYLIX3}
   result := ioctl(s,cmd,@arg);
@@ -1007,17 +963,18 @@ begin
     result := '';
 end;
 
-procedure ResolveNameToIP(const Name: string; Family, SockProtocol, SockType: integer;
-  IPList: TStrings);
+procedure ResolveNameToIP(const Name: AnsiString; Family, SockProtocol, SockType: integer;
+  IPList: TStrings; IPListClear: boolean);
 var
   Hints: TAddressInfo;
   Addr: PAddressInfo;
   AddrNext: PAddressInfo;
-  r: integer;
+  r, prev: integer;
   host, serv: string;
   hostlen, servlen: integer;
 begin
-  IPList.Clear;
+  if IPListClear then
+    IPList.Clear;
   Addr := nil;
   try // we force to find TCP/IP
     FillChar(Hints, Sizeof(Hints), 0);
@@ -1143,14 +1100,15 @@ begin
   end;
 end;
 
-procedure ResolveNameToIP(const Name: string;
-  Family,SockProtocol,SockType: integer; IPList: TStrings);
+procedure ResolveNameToIP(const Name: AnsiString; Family, SockProtocol, SockType: integer;
+  IPList: TStrings; IPListClear: boolean);
 var x,n: integer;
     a4: array[1..255] of in_addr;
     a6: array[1..255] of Tin6_addr;
     he: THostEntry;
 begin
-  IPList.Clear;
+  if IPListClear then
+    IPList.Clear;
   if (family=AF_INET) or (family=AF_UNSPEC) then begin
     if lowercase(name)=cLocalHostStr then
       IpList.Add(cLocalHost) else begin
@@ -1262,5 +1220,8 @@ end;
 initialization
   SET_IN6_IF_ADDR_ANY(@in6addr_any);
   SET_LOOPBACK_ADDR6(@in6addr_loopback);
+  InitializeCriticalSection(SynSockCS);
 
+finalization
+  DeleteCriticalSection(SynSockCS);
 end.

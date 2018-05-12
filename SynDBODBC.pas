@@ -6,7 +6,7 @@ unit SynDBODBC;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,14 +25,14 @@ unit SynDBODBC;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
   - Esteban Martin (EMartin)
   - squirrel
   - zed
-  
+
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
   the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
@@ -519,6 +519,15 @@ const
   SQL_C_USHORT = (SQL_C_SHORT+SQL_UNSIGNED_OFFSET);
   SQL_C_UTINYINT = (SQL_TINYINT+SQL_UNSIGNED_OFFSET);
 
+  // Driver specific SQL data type defines.
+  // Microsoft has -150 thru -199 reserved for Microsoft SQL Server Native Client driver usage.
+  SQL_SS_VARIANT = (-150);
+  SQL_SS_UDT = (-151);
+  SQL_SS_XML = (-152);
+  SQL_SS_TABLE = (-153);
+  SQL_SS_TIME2 = (-154);
+  SQL_SS_TIMESTAMPOFFSET = (-155);
+
   // Statement attribute values for cursor sensitivity
   SQL_UNSPECIFIED = 0;
   SQL_INSENSITIVE = 1;
@@ -663,6 +672,30 @@ const
   SQL_DRIVER_PROMPT = 2;
   SQL_DRIVER_COMPLETE_REQUIRED = 3;
 
+  // SQLSetStmtAttr SQL Server Native Client driver specific defines.
+  // Statement attributes
+  SQL_SOPT_SS_BASE                      = 1225;
+  SQL_SOPT_SS_TEXTPTR_LOGGING           = (SQL_SOPT_SS_BASE+0); // Text pointer logging
+  SQL_SOPT_SS_CURRENT_COMMAND           = (SQL_SOPT_SS_BASE+1); // dbcurcmd SQLGetStmtOption only
+  SQL_SOPT_SS_HIDDEN_COLUMNS            = (SQL_SOPT_SS_BASE+2); // Expose FOR BROWSE hidden columns
+  SQL_SOPT_SS_NOBROWSETABLE             = (SQL_SOPT_SS_BASE+3); // Set NOBROWSETABLE option
+  SQL_SOPT_SS_REGIONALIZE               = (SQL_SOPT_SS_BASE+4); // Regionalize output character conversions
+  SQL_SOPT_SS_CURSOR_OPTIONS            = (SQL_SOPT_SS_BASE+5); // Server cursor options
+  SQL_SOPT_SS_NOCOUNT_STATUS            = (SQL_SOPT_SS_BASE+6); // Real vs. Not Real row count indicator
+  SQL_SOPT_SS_DEFER_PREPARE             = (SQL_SOPT_SS_BASE+7); // Defer prepare until necessary
+  SQL_SOPT_SS_QUERYNOTIFICATION_TIMEOUT = (SQL_SOPT_SS_BASE+8); // Notification timeout
+  SQL_SOPT_SS_QUERYNOTIFICATION_MSGTEXT = (SQL_SOPT_SS_BASE+9); // Notification message text
+  SQL_SOPT_SS_QUERYNOTIFICATION_OPTIONS = (SQL_SOPT_SS_BASE+10);// SQL service broker name
+  SQL_SOPT_SS_PARAM_FOCUS               = (SQL_SOPT_SS_BASE+11);// Direct subsequent calls to parameter related methods to set properties on constituent columns/parameters of container types
+  SQL_SOPT_SS_NAME_SCOPE                = (SQL_SOPT_SS_BASE+12);// Sets name scope for subsequent catalog function calls
+  SQL_SOPT_SS_MAX_USED                  = SQL_SOPT_SS_NAME_SCOPE;
+
+  SQL_IS_POINTER                        = (-4);
+  SQL_IS_UINTEGER                       = (-5);
+  SQL_IS_INTEGER                        = (-6);
+  SQL_IS_USMALLINT                      = (-7);
+  SQL_IS_SMALLINT                       = (-8);
+
 type
   SqlSmallint = Smallint;
   SqlDate = Byte;
@@ -700,7 +733,7 @@ type
 
   {$A-}
   /// memory structure used to store SQL_C_TYPE_TIMESTAMP values
-  SQL_TIMESTAMP_STRUCT = {$ifndef UNICODE}object{$else}record{$endif}
+  {$ifdef UNICODE}SQL_TIMESTAMP_STRUCT = record{$else}SQL_TIMESTAMP_STRUCT = object{$endif}
     Year:     SqlSmallint;
     Month:    SqlUSmallint;
     Day:      SqlUSmallint;
@@ -723,7 +756,7 @@ type
     /// convert a TDateTime into ODBC date or timestamp
     // - returns the corresponding C type, i.e. either SQL_C_TYPE_DATE,
     // either SQL_C_TYPE_TIMESTAMP and the corresponding size in bytes
-    function From(DateTime: TDateTime; var ColumnSize: SqlULen): SqlSmallint;
+    function From(DateTime: TDateTime; var ColumnSize: SqlLen): SqlSmallint;
   end;
   SQL_TIME_STRUCT	= record
     Hour:     SqlUSmallint;
@@ -1025,7 +1058,7 @@ const
   {$else}
   ODBC_LIB = 'libodbc.so.1';
   {$endif}
-  
+
   ODBC_ENTRIES: array[0..66] of PChar =
     ('SQLAllocEnv','SQLAllocHandle','SQLAllocStmt',
      'SQLBindCol','SQLBindParameter','SQLCancel','SQLCloseCursor',
@@ -1046,7 +1079,7 @@ const
      'SQLProcedureColumnsA','SQLProcedureColumnsW','SQLProcedures');
 
 var
-  ODBC: TODBCLib = nil;    
+  ODBC: TODBCLib = nil;
 
 {$ifdef MSWINDOWS}
 function ODBCInstalledDriversList(const aIncludeVersion: Boolean; out aDrivers: TStrings): Boolean;
@@ -1054,7 +1087,7 @@ function ODBCInstalledDriversList(const aIncludeVersion: Boolean; out aDrivers: 
   // expand environment variables, i.e %windir%
   // adapted from http://delphidabbler.com/articles?article=6
   function ExpandEnvVars(const aStr: string): string;
-  var size: Integer; 
+  var size: Integer;
   begin
     // Get required buffer size
     size := ExpandEnvironmentStrings(pointer(aStr),nil,0);
@@ -1190,7 +1223,7 @@ end;
 constructor TODBCConnection.Create(aProperties: TSQLDBConnectionProperties);
 var Log: ISynLog;
 begin
-  Log := SynDBLog.Enter(self);
+  Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Create'{$endif});
   if not aProperties.InheritsFrom(TODBCConnectionProperties) then
     raise EODBCException.CreateUTF8('Invalid %.Create(%)',[self,aProperties]);
   fODBCProperties := TODBCConnectionProperties(aProperties);
@@ -1211,7 +1244,7 @@ begin
   finally
     if (ODBC<>nil) and (fDbc<>nil) then
     with ODBC do begin
-      SynDBLog.Enter(self);
+      SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Disconnect'{$endif});
       Disconnect(fDbc);
       FreeHandle(SQL_HANDLE_DBC,fDbc);
       fDbc := nil;
@@ -1415,7 +1448,7 @@ begin
         //FillcharFast(P^,ExpectedDataLen,ord('~'));
         Status := ODBC.GetData(fStatement,ColIndex+1,ExpectedDataType,
           P,ExpectedDataLen,@Indicator);
-        CheckStatus; 
+        CheckStatus;
       end else
       CheckStatus else
     CheckStatus;
@@ -1608,6 +1641,9 @@ procedure TODBCStatement.ExecutePrepared;
 const
   ODBC_IOTYPE_TO_PARAM: array[TSQLDBParamInOutType] of ShortInt = (
     SQL_PARAM_INPUT, SQL_PARAM_OUTPUT, SQL_PARAM_INPUT_OUTPUT);
+  IDList_type: WideString = 'IDList';
+  StrList_type: WideString = 'StrList';
+
 function CType2SQL(CDataType: integer): integer;
 begin
   case CDataType of
@@ -1630,14 +1666,21 @@ begin
      '%.ExecutePrepared: Unexpected ODBC C type %',[self,CDataType]);
   end;
 end;
-var p: integer;
+
+var p, k: integer;
     status: SqlReturn;
-    InputOutputType, CValueType: SqlSmallint;
+    InputOutputType, CValueType, ParameterType, DecimalDigits: SqlSmallint;
     ColumnSize: SqlULen;
     ParameterValue: SqlPointer;
-    TimeStamp: SQL_TIMESTAMP_STRUCT;
+    ItemSize, BufferSize: SqlLen;
+    ItemPW: PWideChar;
+    timestamp: SQL_TIMESTAMP_STRUCT;
     DriverDoesNotHandleUnicode: boolean;
     StrLen_or_Ind: array of PtrInt;
+    ArrayData: array of record
+      StrLen_or_Ind: array of PtrInt;
+      WData: RawUnicode;
+    end;
 label retry;
 begin
   if fStatement=nil then
@@ -1645,70 +1688,99 @@ begin
   inherited ExecutePrepared; // set fConnection.fLastAccessTicks
   DriverDoesNotHandleUnicode := TODBCConnection(fConnection).fODBCProperties.fDriverDoesNotHandleUnicode;
   if fSQL<>'' then
-    with SynDBLog.Enter(Self,nil,true).Instance do
+    with SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'ExecutePrepared'{$endif}).Instance do
       if sllSQL in Family.Level then
         Log(sllSQL,SQLWithInlinedParams,self,2048);
   try
     // 1. bind parameters
-    if fParamsArrayCount>0 then
+    if (fParamsArrayCount>0) and (fDBMS<>dMSSQL) then
       raise EODBCException.CreateUTF8('%.BindArray() not supported',[self]);
     if fParamCount>0 then begin
       SetLength(StrLen_or_Ind,fParamCount);
+      if (fParamsArrayCount>0) then
+        SetLength(ArrayData,fParamCount);
       for p := 0 to fParamCount-1 do
       with fParams[p] do begin
         StrLen_or_Ind[p] := SQL_NTS;
         ParameterValue := nil;
         CValueType := ODBC_TYPE_TOC[VType];
+        ParameterType := CType2SQL(CValueType);
         InputOutputType := ODBC_IOTYPE_TO_PARAM[VInOut];
-        case VType of
-        ftNull:
-          StrLen_or_Ind[p] := SQL_NULL_DATA;
-        ftInt64:
-          if VInOut=paramIn then
-            VData := Int64ToUTF8(VInt64) else begin
-            CValueType := SQL_C_SBIGINT;
-            ParameterValue := pointer(@VInt64);
+        ColumnSize := 0;
+        DecimalDigits := 0;
+        if (fDBMS=dMSSQL) and (VArray<>nil) then begin
+          // bind an array as one object - metadata only at the moment
+          if (VInOut<>paramIn) then
+            raise EODBCException.CreateUTF8(
+              '%.ExecutePrepared: Unsupported array parameter direction #%',[self,p+1]);
+          CValueType := SQL_C_DEFAULT;
+          ParameterType := SQL_SS_TABLE;
+          ColumnSize := Length(VArray);
+          // Type name must be specified as a Unicode value, even in applications that are built as ANSI applications
+          case VType of
+            ftInt64: ParameterValue := pointer(IDList_type);
+            ftUTF8:  ParameterValue := pointer(StrList_type);
+            else raise EODBCException.CreateUTF8(
+              '%.ExecutePrepared: Unsupported array parameter type #%',[self,p+1]);
           end;
-        ftDouble: begin
-          CValueType := SQL_C_DOUBLE;
-          ParameterValue := pointer(@VInt64);
-        end;
-        ftCurrency:
-          if VInOut=paramIn then
-            VData := Curr64ToStr(VInt64) else begin
+          BufferSize := Length(WideString(ParameterValue))*SizeOf(WideChar);
+          StrLen_or_Ind[p] := Length(VArray);
+        end else begin
+          // Bind one simple parameter value
+          case VType of
+          ftNull:
+            StrLen_or_Ind[p] := SQL_NULL_DATA;
+          ftInt64:
+            if VInOut=paramIn then
+              VData := Int64ToUTF8(VInt64) else begin
+              CValueType := SQL_C_SBIGINT;
+              ParameterValue := pointer(@VInt64);
+            end;
+          ftDouble: begin
             CValueType := SQL_C_DOUBLE;
-            PDouble(@VInt64)^ := PCurrency(@VInt64)^;
             ParameterValue := pointer(@VInt64);
           end;
-        ftDate: begin
-          CValueType := TimeStamp.From(PDateTime(@VInt64)^,ColumnSize);
-          SetString(VData,PAnsiChar(@TimeStamp),ColumnSize);
-        end;
-        ftUTF8:
-          if DriverDoesNotHandleUnicode then begin
-retry:      VData := CurrentAnsiConvert.UTF8ToAnsi(VData);
-            CValueType := SQL_C_CHAR;
+          ftCurrency:
+            if VInOut=paramIn then
+              VData := Curr64ToStr(VInt64) else begin
+              CValueType := SQL_C_DOUBLE;
+              PDouble(@VInt64)^ := PCurrency(@VInt64)^;
+              ParameterValue := pointer(@VInt64);
+            end;
+          ftDate: begin
+            CValueType := timestamp.From(PDateTime(@VInt64)^,BufferSize);
+            SetString(VData,PAnsiChar(@timestamp),BufferSize);
+            // A workaround for "[ODBC Driver 13 for SQL Server]Datetime field overflow. Fractional second precision exceeds the scale specified in the parameter binding"
+            // Implemented according to http://rightondevelopment.blogspot.com/2009/10/sql-server-native-client-100-datetime.html
+            if fDBMS=dMSSQL then // Starting from MSSQL 2008 client DecimalDigits must not be 0
+              DecimalDigits := 3; // Possibly can be set to either 3 (datetime) or 7 (datetime2)
+          end;
+          ftUTF8:
+            if DriverDoesNotHandleUnicode then begin
+  retry:      VData := CurrentAnsiConvert.UTF8ToAnsi(VData);
+              CValueType := SQL_C_CHAR;
+            end else
+              VData := Utf8DecodeToRawUnicode(VData);
+          ftBlob:
+            StrLen_or_Ind[p] := length(VData);
+          else
+            raise EODBCException.CreateUTF8(
+              '%.ExecutePrepared: invalid bound parameter #%',[self,p+1]);
+          end;
+          if ParameterValue=nil then begin
+            if pointer(VData)=nil then
+              ParameterValue := @NULCHAR else
+              ParameterValue := pointer(VData);
+            BufferSize := length(VData);
+            if CValueType=SQL_C_CHAR then
+              inc(BufferSize) else // include last #0
+            if CValueType=SQL_C_WCHAR then
+              BufferSize := BufferSize shr 1;
           end else
-            VData := Utf8DecodeToRawUnicode(VData);
-        ftBlob:
-          StrLen_or_Ind[p] := length(VData);
-        else
-          raise EODBCException.CreateUTF8(
-            '%.ExecutePrepared: invalid bound parameter #%',[self,p+1]);
+            BufferSize := SizeOf(Int64);
         end;
-        if ParameterValue=nil then begin
-          if pointer(VData)=nil then
-            ParameterValue := @NULCHAR else
-            ParameterValue := pointer(VData);
-          ColumnSize := length(VData);
-          if CValueType=SQL_C_CHAR then
-            inc(ColumnSize) else // include last #0
-          if CValueType=SQL_C_WCHAR then
-            ColumnSize := ColumnSize shr 1;
-        end else
-          ColumnSize := SizeOf(Int64);
         status := ODBC.BindParameter(fStatement, p+1, InputOutputType, CValueType,
-         CType2SQL(CValueType), 0, 0, ParameterValue, ColumnSize, StrLen_or_Ind[p]);
+         ParameterType, ColumnSize, DecimalDigits, ParameterValue, BufferSize, StrLen_or_Ind[p]);
         if (status=SQL_ERROR) and not DriverDoesNotHandleUnicode and
            (ODBC.GetDiagField(fStatement)='HY004') then begin
           TODBCConnection(fConnection).fODBCProperties.fDriverDoesNotHandleUnicode := true;
@@ -1717,6 +1789,44 @@ retry:      VData := CurrentAnsiConvert.UTF8ToAnsi(VData);
           goto retry; // circumvent restriction of non-Unicode ODBC drivers
         end;
         ODBC.Check(nil,self,status,SQL_HANDLE_STMT,fStatement);
+        // populate array data
+        if (fDBMS=dMSSQL) and (VArray<>nil) then begin
+          // first set focus on param
+          status := ODBC.SetStmtAttrA(fStatement, SQL_SOPT_SS_PARAM_FOCUS, SQLPOINTER(p+1), SQL_IS_INTEGER);
+          if not (status in [SQL_SUCCESS,SQL_NO_DATA]) then
+            ODBC.HandleError(nil,self,status,SQL_HANDLE_STMT,fStatement,false,sllNone);
+          // bind the only column
+          SetLength(ArrayData[p].StrLen_or_Ind,Length(VArray));
+          CValueType := SQL_C_WCHAR;
+          ParameterType := SQL_WVARCHAR;
+          // all data should be passed in a single buffer of fixed size records
+          // so find out the size of a record, i.e. maximum string length
+          BufferSize := 0;
+          for k := 0 to high(VArray) do begin
+            if VType=ftUTF8 then
+              VArray[k] := SynCommons.UnQuoteSQLString(VArray[k]);
+            ItemSize := Utf8ToUnicodeLength(pointer(VArray[k]));
+            if ItemSize>BufferSize then
+              BufferSize := ItemSize;
+          end;
+          inc(BufferSize); // add space for #0
+          SetLength(ArrayData[p].WData,BufferSize*Length(VArray)*SizeOf(WideChar));
+          ItemPW := pointer(ArrayData[p].WData);
+          for k := 0 to high(VArray) do begin
+            ArrayData[p].StrLen_or_Ind[k] := UTF8ToWideChar(ItemPW,pointer(VArray[k]),
+              BufferSize,length(VArray[k]));
+           inc(ItemPW,BufferSize);
+          end;
+          status := ODBC.BindParameter(fStatement,1,SQL_PARAM_INPUT,CValueType,
+            ParameterType,0,0,pointer(ArrayData[p].WData),BufferSize*SizeOf(WideChar),
+            ArrayData[p].StrLen_or_Ind[0]);
+          if not (status in [SQL_SUCCESS,SQL_NO_DATA]) then
+            ODBC.HandleError(nil,self,status,SQL_HANDLE_STMT,fStatement,false,sllNone);
+          // Reset param focus
+          status := ODBC.SetStmtAttrA(fStatement,SQL_SOPT_SS_PARAM_FOCUS,SQLPOINTER(0),SQL_IS_INTEGER);
+          if not (status in [SQL_SUCCESS,SQL_NO_DATA]) then
+            ODBC.HandleError(nil,self,status,SQL_HANDLE_STMT,fStatement,false,sllNone);
+        end;
       end;
     end;
     // 2. execute prepared statement
@@ -1768,7 +1878,7 @@ end;
 procedure TODBCStatement.Prepare(const aSQL: RawUTF8; ExpectResults: Boolean);
 var Log: ISynLog;
 begin
-  Log := SynDBLog.Enter(self,nil,true);
+  Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Prepare'{$endif});
   if (fStatement<>nil) or (fColumnCount>0) then
     raise EODBCException.CreateUTF8('%.Prepare should be called only once',[self]);
   // 1. process SQL
@@ -1851,7 +1961,7 @@ var Status: array[0..7] of AnsiChar;
     StringLength: SqlSmallint;
 begin
   if ODBC.GetDiagFieldA(SQL_HANDLE_STMT,StatementHandle,1,SQL_DIAG_SQLSTATE,
-     @Status,sizeof(Status),StringLength)=0 then
+     @Status,SizeOf(Status),StringLength)=0 then
     SetString(result,PAnsiChar(@Status),StringLength) else
     result := '';
 end;
@@ -1862,7 +1972,7 @@ var Len: SqlSmallint;
     Info: array[byte] of WideChar;
 begin
   Len := 0;
-  Check(nil,nil,GetInfoW(ConnectionHandle,InfoType,@Info,sizeof(Info)shr 1,@Len),
+  Check(nil,nil,GetInfoW(ConnectionHandle,InfoType,@Info,SizeOf(Info)shr 1,@Len),
     SQL_HANDLE_DBC,ConnectionHandle);
   Dest := RawUnicodeToUtf8(Info,Len shr 1);
 end;
@@ -1968,7 +2078,7 @@ begin
       end;
       FA.Init(TypeInfo(TSQLDBColumnDefineDynArray),Fields,@n);
       FA.Compare := SortDynArrayAnsiStringI; // FA.Find() case insensitive
-      fillchar(F,sizeof(F),0);
+      fillchar(F,SizeOf(F),0);
       if fCurrentRow>0 then // Step done above
       repeat
         F.ColumnName := Trim(ColumnUTF8(3)); // Column*() should be done in order
@@ -2170,7 +2280,7 @@ begin
         Stmt.Step;
       end;
       PA.Init(TypeInfo(TSQLDBColumnDefineDynArray),Parameters,@n);
-      fillchar(P,sizeof(P),0);
+      fillchar(P,SizeOf(P),0);
       if Stmt.fCurrentRow>0 then // Step done above
       repeat
         P.ColumnName := Trim(Stmt.ColumnUTF8(3)); // Column*() should be in order
@@ -2219,7 +2329,7 @@ end;
 
 { SQL_TIMESTAMP_STRUCT }
 
-function SQL_TIMESTAMP_STRUCT.From(DateTime: TDateTime; var ColumnSize: SqlULen): SqlSmallint;
+function SQL_TIMESTAMP_STRUCT.From(DateTime: TDateTime; var ColumnSize: SqlLen): SqlSmallint;
 var Y,MS: word;
 begin
   DecodeDate(DateTime,Y,Month,Day);
@@ -2236,7 +2346,7 @@ begin
     ColumnSize := SizeOf(SqlUSmallint)*3;
   end else begin
     result := SQL_C_TYPE_TIMESTAMP;
-    ColumnSize := sizeof(SQL_TIMESTAMP_STRUCT);
+    ColumnSize := SizeOf(SQL_TIMESTAMP_STRUCT);
   end;
 end;
 
@@ -2268,7 +2378,7 @@ begin
       result := 25;
     end else begin
       inc(Dest,9);
-      result := 21; 
+      result := 21;
     end;
   end else
     result := 12; // only date

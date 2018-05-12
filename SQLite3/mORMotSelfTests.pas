@@ -6,7 +6,7 @@ unit mORMotSelfTests;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,11 +25,11 @@ unit mORMotSelfTests;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
-  
+
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
   the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
@@ -75,18 +75,21 @@ procedure SQLite3ConsoleTests;
 implementation
 
 uses
+  SysUtils,
+  SynCommons,
   {$ifdef MSWINDOWS}
-  Windows, // for AllocConsole
-  {$ifndef DELPHI5OROLDER}
-  SynBigTable,
+    Windows, // for AllocConsole
+    {$ifndef DELPHI5OROLDER}
+      SynBigTable,
+    {$endif}
   {$endif}
-  {$endif}
   {$ifndef DELPHI5OROLDER}
-  mORMot, // for TSQLLog
+    mORMot, // for TSQLLog
   {$endif}
   SynLog,
   SynBidirSock, // for WebSocketLog
   SynTests,
+  SynSQLite3, // for Sqlite3 used version
   SynSelfTests;
 
 type
@@ -96,24 +99,37 @@ type
   // - inherits from TSynTestsLogged in order to create enhanced log information
   // in case of any test case failure
   TTestSynopsemORMotFramework = class(TSynTestsLogged)
+  public
+    /// provide additional information
+    function Run: boolean; override;
   published
     /// test the freeware Synopse library
     // - low level functions and classes, cryptographic or compression routines,
     // PDF generation
     procedure SynopseLibraries;
-{$ifndef DELPHI5OROLDER}
+    {$ifndef DELPHI5OROLDER}
     /// test the freeware Synopse mORMot framework
     // - access to SQLite3 or external engines, ORM features, Client/Server
     procedure _mORMot;
-{$endif DELPHI5OROLDER}
+    {$endif DELPHI5OROLDER}
   end;
 
 
 { TTestSynopsemORMotFramework }
 
+function TTestSynopsemORMotFramework.Run: boolean;
+begin
+  CustomVersions := format(#13#10#13#10'Run on: %s - codepage=%d'#13#10 +
+    '    %s'#13#10'Using mORMot %s'#13#10'    %s %s',
+    [OSVersionText, GetACP, CpuInfoText, SYNOPSE_FRAMEWORK_FULLVERSION,
+     sqlite3.ClassName, sqlite3.Version]);
+  result := inherited Run;
+end;
+
 procedure TTestSynopsemORMotFramework.SynopseLibraries;
 begin
-  // exit;
+  //AddCase(TTestCompression);
+  //exit;
   AddCase([TTestLowLevelCommon,
     TTestLowLevelTypes,
 {$ifdef MSWINDOWS}
@@ -127,10 +143,9 @@ begin
 {$endif}
 {$endif}
     TTestCryptographicRoutines,
-    {$ifndef BSD} // todo: proper ECC support for BSD/Darwin
     TTestECCCryptography,
-    {$endif}
-    TTestCompression
+    TTestCompression,
+    TTestProtocols
    ]);
 end;
 
@@ -140,12 +155,14 @@ type // mORMot.pas unit doesn't compile with Delphi 5 yet
 {$else}
 procedure TTestSynopsemORMotFramework._mORMot;
 begin
-  // exit; // (*
+  //AddCase(TTestFileBased);
+  //exit; // (*
   AddCase([TTestFileBased,TTestFileBasedMemoryMap,TTestFileBasedWAL]);
   AddCase(TTestMemoryBased);
   AddCase(TTestBasicClasses);
   // *)
-  AddCase(TTestClientServerAccess); // (*
+  AddCase(TTestClientServerAccess);
+  // (*
   AddCase(TTestServiceOrientedArchitecture);
   AddCase(TTestBidirectionalRemoteConnection);
   AddCase(TTestExternalDatabase);
@@ -169,7 +186,7 @@ begin
     Level := LOG_VERBOSE;
     //DestinationPath := ExeVersion.ProgramFilePath+'logs'; folder should exist
     PerThreadLog := ptIdentifiedInOnFile;
-    //HighResolutionTimeStamp := true;
+    //HighResolutionTimestamp := true;
     //RotateFileCount := 5; RotateFileSizeKB := 20*1024; // rotate by 20 MB logs
   end
   else

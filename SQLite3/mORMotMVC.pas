@@ -6,7 +6,7 @@ unit mORMotMVC;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotMVC;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -102,6 +102,8 @@ type
     fViewTemplateFolder: TFileName;
     fFactoryErrorIndex: integer;
     function GetViewStaticFolder: TFileName;
+    /// return the static file contents
+    function GetStaticFile(const aFileName: TFileName): RawByteString; virtual;
     /// overriden implementations should return the rendered content
     procedure Render(methodIndex: Integer; const Context: variant; var View: TMVCView); virtual; abstract;
   public
@@ -154,13 +156,19 @@ type
       FileExt: TFileName;
       ContentType: RawUTF8;
       Locker: IAutoLocker;
-      FileTimeStamp: TDateTime;
-      FileTimeStampCheckTick: Int64;
+      FileTimestamp: TDateTime;
+      FileTimestampCheckTick: Int64;
     end;
     function GetRenderer(methodIndex: integer; out aContentType: RawUTF8): TSynMustache;
     class procedure md5(const Value: variant; out result: variant);
     class procedure sha1(const Value: variant; out result: variant);
     class procedure sha256(const Value: variant; out result: variant);
+    /// search for template files in ViewTemplateFolder
+    function FindTemplates(const Mask: TFileName): TFileNameDynArray; virtual;
+    /// return the template file contents
+    function GetTemplate(const aFileName: TFileName): RawUTF8; virtual;
+    /// return the template file date and time
+    function GetTemplateAge(const aFileName: TFileName): TDateTime; virtual;
     /// overriden implementations should return the rendered content
     procedure Render(methodIndex: Integer; const Context: variant; var View: TMVCView); override;
   public
@@ -285,12 +293,13 @@ type
   // and they are encrypted with a temporary key - this secret keys is tied to
   // the TMVCSessionWithCookies instance lifetime, so new cookies are generated
   // after server restart, unless they are persisted via LoadContext/SaveContext
+  // - signature and encryption are weak, but very fast, to avoid DDOS attacks
   TMVCSessionWithCookies = class(TMVCSessionAbstract)
   protected
     fContext: TMVCSessionWithCookiesContext;
     function GetCookie: RawUTF8; virtual; abstract;
     procedure SetCookie(const cookie: RawUTF8); virtual; abstract;
-    procedure Crypt(P: PByteArray; bytes: integer);
+    procedure Crypt(P: PAnsiChar; bytes: integer);
   public
     /// create an instance of this ViewModel implementation class
     constructor Create; override;
@@ -310,7 +319,7 @@ type
     /// clear the session
     // - by deleting the cookie on the client side
     procedure Finalize; override;
-    /// return all cookie generation information as base64 encoded text 
+    /// return all cookie generation information as base64 encoded text
     // - to be retrieved via LoadContext
     function SaveContext: RawUTF8; override;
     /// restore cookie generation information from SaveContext text format
@@ -621,7 +630,7 @@ type
     // if any TMVCRun instance is store here, will be freed by Destroy
     // but note that a single TMVCApplication logic may handle several TMVCRun
     fMainRunner: TMVCRun;
-    procedure SetSession(const Value: TMVCSessionAbstract);
+    procedure SetSession(Value: TMVCSessionAbstract);
     /// to be called when the data model did change to force content re-creation
     // - this default implementation will call fMainRunner.NotifyContentChanged
     procedure FlushAnyCache; virtual;
@@ -698,6 +707,11 @@ begin
     fLogClass := aLogClass;
 end;
 
+function TMVCViewsAbtract.GetStaticFile(const aFileName: TFileName): RawByteString;
+begin
+  result := StringFromFile(fViewTemplateFolder+aFileName);
+end;
+
 function TMVCViewsAbtract.GetViewStaticFolder: TFileName;
 begin
   result := ViewTemplateFolder+STATIC_URI;
@@ -760,11 +774,11 @@ end;
 
 constructor TMVCViewsMustache.Create(aInterface: PTypeInfo;
   const aParameters: TMVCViewsMustacheParameters; aLogClass: TSynLogClass);
-var m: integer;
+var m, i: integer;
     LowerExt: TFileName;
+    files: TFileNameDynArray;
     partialName: RawUTF8;
     info: variant;
-    SR: TSearchRec;
 begin
   inherited Create(aInterface,aLogClass);
   // get views
@@ -772,7 +786,8 @@ begin
   if aParameters.Folder='' then
     fViewTemplateFolder := ExeVersion.ProgramFilePath+'Views'+PathDelim else
     fViewTemplateFolder := IncludeTrailingPathDelimiter(aParameters.Folder);
-  if not DirectoryExists(fViewTemplateFolder) then
+  if (aParameters.ExtensionForNotExistingTemplate<>'') and
+     (not DirectoryExists(fViewTemplateFolder)) then
     CreateDir(fViewTemplateFolder);
   if aParameters.CSVExtensions='' then
     LowerExt := ',html,json,css,' else
@@ -783,50 +798,44 @@ begin
   with fViews[m] do begin
     Locker := TAutoLocker.Create;
     MethodName := UTF8ToString(fFactory.Methods[m].URI);
-    SearchPattern := fViewTemplateFolder+MethodName+'.*';
-    if FindFirst(SearchPattern,faAnyFile-faDirectory,SR)=0 then
-      try
-        repeat
-          FileExt := SysUtils.LowerCase(copy(ExtractFileExt(SR.Name),2,100));
-          if Pos(','+FileExt+',',LowerExt)>0 then
-            break; // found a template with the right extension
-        until FindNext(SR)<>0;
-        ShortFileName := SR.Name;
-        FileName := fViewTemplateFolder+ShortFileName;
-        ContentType := GetMimeContentType(nil,0,ShortFileName);
-      finally
-        FindClose(SR);
-      end else begin
-        fLogClass.Add.Log(
-          sllWarning,'%.Create: Missing View file in %',[self,SearchPattern]);
-        if aParameters.ExtensionForNotExistingTemplate<>'' then begin
-          ShortFileName := MethodName+aParameters.ExtensionForNotExistingTemplate;
-          FileName := fViewTemplateFolder+ShortFileName;
-          info := ContextFromMethod(fFactory.Methods[m]);
-          info.interfaceName := fFactory.InterfaceTypeInfo^.Name;
-          FileFromString(StringReplaceChars(StringReplaceChars(
-            TSynMustache.Parse(MUSTACHE_VOIDVIEW).Render(info),'<','{'),'>','}'),
-            FileName);
-        end;
+    SearchPattern := MethodName+'.*';
+    files := FindTemplates(SearchPattern);
+    if length(files)>0 then begin
+      for i := 0 to length(files)-1 do begin
+        ShortFileName := files[i];
+        FileExt := SysUtils.LowerCase(copy(ExtractFileExt(ShortFileName),2,100));
+        if Pos(','+FileExt+',',LowerExt)>0 then
+          break; // found a template with the right extension
       end;
+      FileName := fViewTemplateFolder+ShortFileName;
+      ContentType := GetMimeContentType(nil,0,ShortFileName);
+    end else begin
+      fLogClass.Add.Log(
+        sllWarning,'%.Create: Missing View file in %',[self,SearchPattern]);
+      if aParameters.ExtensionForNotExistingTemplate<>'' then begin
+        ShortFileName := MethodName+aParameters.ExtensionForNotExistingTemplate;
+        FileName := fViewTemplateFolder+ShortFileName;
+        info := ContextFromMethod(fFactory.Methods[m]);
+        info.interfaceName := fFactory.InterfaceTypeInfo^.Name;
+        FileFromString(StringReplaceChars(StringReplaceChars(
+          TSynMustache.Parse(MUSTACHE_VOIDVIEW).Render(info),'<','{'),'>','}'),
+          FileName);
+      end;
+    end;
   end;
   fViewHelpers := aParameters.Helpers;
   // get partials
   fViewPartials := TSynMustachePartials.Create;
-  if FindFirst(fViewTemplateFolder+'*.partial',faAnyFile,SR)=0 then
-  try
-    repeat
-      StringToUTF8(GetFileNameWithoutExt(SR.Name),partialName);
-      try
-        fViewPartials.Add(partialName,AnyTextFileToRawUTF8(fViewTemplateFolder+SR.Name,true));
-      except
-        on E: Exception do
-          fLogClass.Add.Log(
-            sllError,'%.Create: Invalid Partial file % - %',[self,SR.Name,E]);
-      end;
-    until FindNext(SR)<>0;
-  finally
-    FindClose(SR);
+  files := FindTemplates('*.partial');
+  for i := 0 to length(files)-1 do begin
+    StringToUTF8(GetFileNameWithoutExt(files[i]),partialName);
+    try
+      fViewPartials.Add(partialName,GetTemplate(files[i]));
+    except
+      on E: Exception do
+        fLogClass.Add.Log(
+          sllError,'%.Create: Invalid Partial file % - %',[self,files[i],E]);
+    end;
   end;
 end;
 
@@ -1109,30 +1118,47 @@ begin
       raise EMVCException.CreateUTF8('%.Render(''%''): Missing Template in ''%''',
         [self,MethodName,SearchPattern]);
     if (Mustache=nil) or ((fViewTemplateFileTimestampMonitor<>0) and
-       (FileTimeStampCheckTick<GetTickCount64)) then begin
-      age := FileAgeToDateTime(FileName);
-      if (Mustache=nil) or (age<>FileTimeStamp) then begin
+       (FileTimestampCheckTick<GetTickCount64)) then begin
+      age := GetTemplateAge(ShortFileName);
+      if (Mustache=nil) or (age<>FileTimestamp) then begin
         Mustache := nil; // no Mustache.Free: TSynMustache instances are cached
-        FileTimeStamp := age;
-        Template := AnyTextFileToRawUTF8(FileName,true);
+        FileTimestamp := age;
+        Template := GetTemplate(ShortFileName);
         if Template<>'' then
         try
           Mustache := TSynMustache.Parse(Template);
         except
           on E: Exception do
             raise EMVCException.CreateUTF8('%.Render(''%''): Invalid Template: % - %',
-              [self,FileName,E,E.Message]);
+              [self,ShortFileName,E,E.Message]);
         end else
           raise EMVCException.CreateUTF8('%.Render(''%''): Missing Template in ''%''',
             [self,ShortFileName,SearchPattern]);
         if fViewTemplateFileTimestampMonitor<>0 then
-          FileTimeStampCheckTick := GetTickCount64+
+          FileTimestampCheckTick := GetTickCount64+
             Int64(fViewTemplateFileTimestampMonitor)*Int64(1000);
       end;
     end;
     aContentType := ContentType;
     result := Mustache;
   end;
+end;
+
+function TMVCViewsMustache.FindTemplates(const Mask: TFileName): TFileNameDynArray;
+  var files: TFindFilesDynArray;
+begin
+  files := FindFiles(fViewTemplateFolder, Mask, '', False, False);
+  result := FindFilesDynArrayToFileNames(files);
+end;
+
+function TMVCViewsMustache.GetTemplate(const aFileName: TFileName): RawUTF8;
+begin
+  result := AnyTextFileToRawUTF8(fViewTemplateFolder+aFileName,true);
+end;
+
+function TMVCViewsMustache.GetTemplateAge(const aFileName: TFileName): TDateTime;
+begin
+  result := FileAgeToDateTime(fViewTemplateFolder+aFileName);
 end;
 
 procedure TMVCViewsMustache.Render(methodIndex: Integer; const Context: variant;
@@ -1191,43 +1217,36 @@ var rnd: TByte64;
 begin
   inherited Create;
   fContext.CookieName := 'mORMot';
-  TAESPRNG.Main.FillRandom(@fContext.Crypt,sizeof(fContext.Crypt)); // temporary encryption
-  TAESPRNG.Main.FillRandom(@fContext.CryptNonce,sizeof(fContext.CryptNonce));
+  // temporary secret for encryption
+  fContext.CryptNonce := Random32;
+  TAESPRNG.Main.FillRandom(@fContext.Crypt,sizeof(fContext.Crypt));
+  // temporary secret for HMAC-CRC32C
   TAESPRNG.Main.FillRandom(@rnd,sizeof(rnd));
-  fContext.Secret.Init(@rnd,sizeof(rnd)); // temporary secret for HMAC-CRC32C
+  fContext.Secret.Init(@rnd,sizeof(rnd));
 end;
 
-procedure XorMemoryCTR(Data,Key: PByteArray; size: integer; var ctr: cardinal);
+procedure XorMemoryCTR(data: PCardinal; key256bytes: PCardinalArray; size,ctr: cardinal);
 begin
   while size>=sizeof(Cardinal) do begin
     dec(size,sizeof(Cardinal));
-    PCardinal(Data)^ := PCardinal(Data)^ xor PCardinal(Key)^ xor ctr;
-    inc(PCardinal(Data));
-    inc(PCardinal(Key));
-    inc(ctr);
+    data^ := data^ xor key256bytes[ctr and $3f] xor ctr;
+    inc(data);
+    ctr := ((ctr xor (ctr shr 15))*2246822519); // prime-number ctr diffusion
+    ctr := ((ctr xor (ctr shr 13))*3266489917);
+    ctr := ctr xor (ctr shr 16);
   end;
   if size=0 then
     exit; // no padding
   repeat
     dec(size);
-    Data[size] := Data[size] xor Key[size] xor PByteArray(@ctr)^[size];
+    PByteArray(data)[size] := PByteArray(data)[size] xor PByteArray(key256bytes)[ctr and $ff] xor ctr;
+    inc(ctr);
   until size=0;
-  inc(ctr);
 end;
 
-procedure TMVCSessionWithCookies.Crypt(P: PByteArray; bytes: integer);
-var chunk: integer;
-    ctr: cardinal;
+procedure TMVCSessionWithCookies.Crypt(P: PAnsiChar; bytes: integer);
 begin
-  ctr := fContext.CryptNonce;
-  while bytes>0 do begin
-    if bytes>sizeof(fContext.Crypt) then
-      chunk := sizeof(fContext.Crypt) else
-      chunk := bytes;
-    XorMemoryCTR(P,@fContext.Crypt,chunk,ctr);
-    inc(PByte(P),chunk);
-    dec(bytes,chunk);
-  end;
+  XorMemoryCTR(@P[4],@fContext.Crypt,bytes-4,xxHash32(fContext.CryptNonce,P,4));
 end;
 
 function TMVCSessionWithCookies.Exists: boolean;
@@ -1238,19 +1257,19 @@ end;
 type
   TCookieContent = packed record
     head: packed record
+      cryptnonce: cardinal;
       hmac: cardinal;    // = signature
       session: integer;  // = jti claim
       issued: cardinal;  // = iat claim
       expires: cardinal; // = exp claim
     end;
-    data: array[0..2048-1] of byte; // binary serialization of record value
+    data: array[0..2047] of byte; // binary serialization of record value
   end;
   PCookieContent = ^TCookieContent;
 
-function TMVCSessionWithCookies.CheckAndRetrieve(
-  PRecordData,PRecordTypeInfo: pointer): integer;
+function TMVCSessionWithCookies.CheckAndRetrieve(PRecordData,PRecordTypeInfo: pointer): integer;
 var cookie: RawUTF8;
-    len: integer;
+    clen, len: integer;
     now: cardinal;
     tmp: TCookieContent;
 begin
@@ -1258,21 +1277,21 @@ begin
   cookie := GetCookie;
   if cookie='' then
     exit;
-  Base64FromURI(cookie);
-  len := Base64ToBinLengthSafe(pointer(cookie),length(cookie));
-  if (len>=sizeof(tmp.head)) and (len<=sizeof(tmp)) then begin
-    Base64Decode(pointer(cookie),@tmp,length(cookie) shr 2);
+  clen := length(cookie);
+  len := Base64uriToBinLength(clen);
+  if (len>=sizeof(tmp.head)) and (len<=sizeof(tmp)) and
+     Base64uriDecode(pointer(cookie),@tmp,clen) then begin
     Crypt(@tmp,len);
-    now := UnixTimeUTC;
-    if (tmp.head.session<=fContext.SessionCount) and
-       (tmp.head.issued<=now) and
-       (tmp.head.expires>=now) and
-       (fContext.Secret.Compute(@tmp.head.session,len-4)=tmp.head.hmac) then
-    if PRecordData=nil then
-      result := tmp.head.session else
-      if (PRecordTypeInfo<>nil) and (len>sizeof(tmp.head)) and
-         (RecordLoad(PRecordData^,@tmp.data,PRecordTypeInfo)<>nil) then
-        result := tmp.head.session;
+    if (cardinal(tmp.head.session)<=cardinal(fContext.SessionCount)) then begin
+      now := UnixTimeUTC;
+      if (tmp.head.issued<=now) and (tmp.head.expires>=now) and
+         (fContext.Secret.Compute(@tmp.head.session,len-8)=tmp.head.hmac) then
+      if PRecordData=nil then
+        result := tmp.head.session else
+        if (PRecordTypeInfo<>nil) and (len>sizeof(tmp.head)) and
+           (RecordLoad(PRecordData^,@tmp.data,PRecordTypeInfo)<>nil) then
+          result := tmp.head.session;
+    end;
   end;
   if result=0 then
     Finalize; // delete any invalid/expired cookie on server side
@@ -1280,16 +1299,16 @@ end;
 
 function TMVCSessionWithCookies.Initialize(
   PRecordData,PRecordTypeInfo: pointer; SessionTimeOutMinutes: cardinal): integer;
-var cookie: RawUTF8;
-    len: integer;
+var len: integer;
     tmp: TCookieContent;
 begin
   if (PRecordData<>nil) and (PRecordTypeInfo<>nil) then
     len := RecordSaveLength(PRecordData^,PRecordTypeInfo) else
     len := 0;
-  if len>sizeof(tmp.data)-4 then // all cookies storage should be < 4K
+  if len>sizeof(tmp.data) then // all cookies storage should be < 4K
     raise EMVCApplication.CreateGotoError('Big Fat Cookie');
   result := InterlockedIncrement(fContext.SessionCount);
+  tmp.head.cryptnonce := Random32;
   tmp.head.session := result;
   tmp.head.issued := UnixTimeUTC;
   if SessionTimeOutMinutes=0 then
@@ -1298,10 +1317,9 @@ begin
   if len>0 then
     RecordSave(PRecordData^,@tmp.data,PRecordTypeInfo);
   inc(len,sizeof(tmp.head));
-  tmp.head.hmac := fContext.Secret.Compute(@tmp.head.session,len-4);
+  tmp.head.hmac := fContext.Secret.Compute(@tmp.head.session,len-8);
   Crypt(@tmp,len);
-  cookie := BinToBase64URI(@tmp,len);
-  SetCookie(cookie);
+  SetCookie(BinToBase64URI(@tmp,len));
 end;
 
 procedure TMVCSessionWithCookies.Finalize;
@@ -1329,11 +1347,11 @@ begin
 end;
 
 procedure TMVCSessionWithRestServer.SetCookie(const cookie: RawUTF8);
+var ctxt: TSQLRestServerURIContext;
 begin
-  with ServiceContext.Request do begin
-    OutSetCookie := fContext.CookieName+'='+cookie;
-    InCookie[fContext.CookieName] := cookie;
-  end;
+  ctxt := ServiceContext.Request;
+  ctxt.OutSetCookie := fContext.CookieName+'='+cookie;
+  ctxt.InCookie[CookieName] := cookie;
 end;
 
 
@@ -1450,7 +1468,7 @@ begin
   Action.RedirectToMethodParameters := '';
 end;
 
-procedure TMVCApplication.SetSession(const Value: TMVCSessionAbstract);
+procedure TMVCApplication.SetSession(Value: TMVCSessionAbstract);
 begin
   FreeAndNil(fSession);
   fSession := Value;
@@ -1503,6 +1521,7 @@ var action: TMVCAction;
     WR: TTextWriter;
     methodOutput: RawUTF8;
     renderContext: variant;
+    tmp: TTextWriterStackBuffer;
 begin
   action.ReturnedStatus := HTTP_SUCCESS;
   fMethodIndex := aMethodIndex;
@@ -1511,7 +1530,7 @@ begin
       repeat
         try
           isAction := fApplication.fFactory.Methods[fMethodIndex].ArgsResultIsServiceCustomAnswer;
-          WR := TJSONSerializer.CreateOwnedStream;
+          WR := TJSONSerializer.CreateOwnedStream(tmp);
           try
             WR.Add('{');
             exec := TServiceMethodExecute.Create(@fApplication.fFactory.Methods[fMethodIndex]);
@@ -1768,16 +1787,21 @@ begin
      IdemPropNameU(rawMethodName,STATIC_URI) then begin
     // code below will use a local in-memory cache, but would do the same as:
     // Ctxt.ReturnFileFromFolder(fViews.ViewTemplateFolder+STATIC_URI);
-    static := fStaticCache.Value(rawFormat,#0);
-    if static=#0 then begin
-      if PosEx('..',rawFormat)>0 then // avoid injection
-        static := '' else begin
-        staticFileName := UTF8ToString(StringReplaceChars(rawFormat,'/',PathDelim));
-        static := StringFromFile(fViews.ViewTemplateFolder+STATIC_URI+PathDelim+staticFileName);
-        if static<>'' then
-          static := GetMimeContentType(nil,0,staticFileName)+#0+static;
+    fCacheLocker.Enter;
+    try
+      static := fStaticCache.Value(rawFormat,#0);
+      if static=#0 then begin
+        if PosEx('..',rawFormat)>0 then // avoid injection
+          static := '' else begin
+          staticFileName := UTF8ToString(StringReplaceChars(rawFormat,'/',PathDelim));
+          static := fViews.GetStaticFile(STATIC_URI+PathDelim+staticFileName);
+          if static<>'' then
+            static := GetMimeContentType(nil,0,staticFileName)+#0+static;
+        end;
+        fStaticCache.Add(rawFormat,static);
       end;
-      fStaticCache.Add(rawFormat,static);
+    finally
+      fCacheLocker.Leave;
     end;
     if static='' then
       Ctxt.Error('',HTTP_NOTFOUND) else begin

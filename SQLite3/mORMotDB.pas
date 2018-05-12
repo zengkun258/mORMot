@@ -6,7 +6,7 @@ unit mORMotDB;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotDB;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -161,6 +161,7 @@ uses
   Classes,
   SynCommons,
   SynLog,
+  SynTable, // for TSynTableStatement
   mORMot,
   SynDB;
 
@@ -388,7 +389,7 @@ type
     // supplied, but a fixed "fake ID" is returned by the Add() method; at
     // external DB level, no such ID field would be computed nor set at INSERT -
     // this feature may be useful when working with a legacy database - of
-    // course any ID-based ORM method would probably fail to work 
+    // course any ID-based ORM method would probably fail to work
     property EngineAddForcedID: TID read fEngineAddForcedID write fEngineAddForcedID;
     /// define an alternate method of compute the ID for INSERT
     // - by default, a new ID will be with 'select max(ID)', and an internal
@@ -777,7 +778,7 @@ var SQL: RawUTF8;
           exit;
     result := -1;
   end;
-begin       
+begin
   {$ifdef WITHLOG}
   log := Owner.LogClass.Add;
   log.Enter('Create %',[aClass],self);
@@ -1319,8 +1320,7 @@ var i,n: integer;
     InClause: TIDDynArray;
 begin
   result := false;
-  if (IDs=nil) or (SQLWhere='') or
-     (TableModelIndex<0) or (Model.Tables[TableModelIndex]<>fStoredClass) then
+  if (IDs=nil) or (TableModelIndex<0) or (Model.Tables[TableModelIndex]<>fStoredClass) then
     exit;
   if fBatchMethod<>mNone then
     if fBatchMethod<>mDELETE then
@@ -1347,11 +1347,10 @@ begin
             TInt64DynArray(InClause),n,'RowID in (',')')],false)=nil then
           exit;
       end;
-      exit;
     end else
-    if ExecuteInlined('delete from % where %',[fTableName,SQLWhere],false)=nil then
+    if ExecuteInlined('delete from %%',[fTableName,SQLFromWhere(SQLWhere)],false)=nil then
       exit;
-    if result and (Owner<>nil) then
+    if Owner<>nil then
       Owner.FlushInternalDBCache;
   end;
   result := true;

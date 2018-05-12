@@ -6,7 +6,7 @@ unit SynTaskDialog;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynTaskDialog;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -85,18 +85,30 @@ interface
 {$ENDIF}
 
 uses
-  Windows, CommCtrl, Classes, SysUtils, Messages,
+  Windows,
+  CommCtrl,
+  Classes,
+  SysUtils,
+  Messages,
   {$ifndef FPC}
   Consts,
   {$endif}
   Menus,
   {$ifdef USETMSPACK}
-  AdvGlowButton, AdvMenus, TaskDialog, TaskDialogEx,
+  AdvGlowButton,
+  AdvMenus,
+  TaskDialog,
+  TaskDialogEx,
   {$endif}
   {$ifdef WITHUXTHEME}
   Themes,
   {$endif}
-  Graphics, Forms, Controls, StdCtrls, ExtCtrls, Buttons;
+  Graphics,
+  Forms,
+  Controls,
+  StdCtrls,
+  ExtCtrls,
+  Buttons;
 
 var
   /// will map a generic OK picture from SynTaskDialog.res
@@ -117,7 +129,7 @@ var
     ResRadio: PInteger; VerifyFlag: PBOOL): HRESULT; stdcall;
 
 const
-  /// match the 1st custom button ID 
+  /// match the 1st custom button ID
   mrBtn1 = 100;
   /// match the 2nd custom button ID
   mrBtn2 = 101;

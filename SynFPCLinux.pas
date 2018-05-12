@@ -4,7 +4,7 @@ unit SynFPCLinux;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -23,7 +23,7 @@ unit SynFPCLinux;
 
   The Initial Developer of the Original Code is Alfred Glaenzer.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -90,19 +90,27 @@ procedure DeleteCriticalSection(var cs : TRTLCriticalSection); inline;
 
 {$ifndef BSD}
 const
+  CLOCK_REALTIME = 0;
   CLOCK_MONOTONIC = 1;
-  CLOCK_MONOTONIC_COARSE = 6; // see http://lwn.net/Articles/347811
+  CLOCK_REALTIME_COARSE = 5; // see http://lwn.net/Articles/347811
+  CLOCK_MONOTONIC_COARSE = 6;
 
 var
+  // contains CLOCK_REALTIME_COARSE since kernel 2.6.32
+  CLOCK_REALTIME_TICKCOUNT: integer = CLOCK_REALTIME;
   // contains CLOCK_MONOTONIC_COARSE since kernel 2.6.32
   CLOCK_MONOTONIC_TICKCOUNT: integer = CLOCK_MONOTONIC;
-{$endif}
+
+{$endif BSD}
+
+/// used by TSynMonitorMemory.RetrieveMemoryInfo to compute the sizes in byte
+function getpagesize: Integer; cdecl; external 'c';
 
 /// compatibility function, wrapping Win32 API high resolution timer
 procedure QueryPerformanceCounter(var Value: Int64); inline;
 
 /// compatibility function, wrapping Win32 API high resolution timer
-function QueryPerformanceFrequency(var Value: Int64): boolean;
+function QueryPerformanceFrequency(var Value: Int64): boolean; inline;
 
 /// compatibility function, wrapping Win32 API file position change
 function SetFilePointer(hFile: cInt; lDistanceToMove: TOff;
@@ -113,6 +121,9 @@ function GetFileSize(hFile: cInt; lpFileSizeHigh: PDWORD): DWORD;
 
 /// compatibility function, wrapping Win32 API file truncate at current position
 procedure SetEndOfFile(hFile: cInt); inline;
+
+/// compatibility function, wrapping Win32 API file flush to disk
+procedure FlushFileBuffers(hFile: cInt);
 
 /// compatibility function, wrapping Win32 API last error code
 function GetLastError: longint; inline;
@@ -130,6 +141,10 @@ function GetNowUTC: TDateTime;
 /// returns the current UTC time, as Unix Epoch seconds
 function GetUnixUTC: Int64;
 
+/// returns the current UTC time, as Unix Epoch milliseconds
+// - will call clock_gettime(CLOCK_REALTIME_COARSE) if available
+function GetUnixMSUTC: Int64;
+
 /// returns the current UTC time as TSystemTime
 procedure GetNowUTCSystem(var result: TSystemTime);
 
@@ -137,6 +152,10 @@ var
   /// will contain the current Linux kernel revision, as one integer
   // - e.g. $030d02 for 3.13.2, or $020620 for 2.6.32
   KernelRevision: cardinal;
+
+/// calls the pthread_setname_np() function, if available on this system
+// - under Linux/FPC, this API truncates the name to 16 chars
+procedure SetUnixThreadName(ThreadID: TThreadID; const Name: RawByteString);
 
 {$endif Linux}
 
@@ -158,7 +177,7 @@ implementation
 
 {$ifdef Linux}
 uses
-  Classes, Unix, BaseUnix, {$ifndef BSD}linux,{$endif} dynlibs;
+  Classes, Unix, BaseUnix, {$ifndef BSD}linux,{$endif} dl;
 {$endif}
 
 procedure InitializeCriticalSection(var cs : TRTLCriticalSection);
@@ -233,13 +252,6 @@ begin
   result.MilliSecond := tz.tv_usec div 1000;
 end;
 
-function GetUnixUTC: Int64;
-var tz: timeval;
-begin
-  fpgettimeofday(@tz,nil);
-  result := tz.tv_sec;
-end;
-
 function GetTickCount: cardinal;
 begin
   result := cardinal(GetTickCount64);
@@ -280,16 +292,24 @@ begin // returns time in nano second resolution
     Value := round(Value*mach_timecoeff);
 end;
 
-function QueryPerformanceFrequency(var Value: Int64):boolean;
-begin
-  Value := C_BILLION; // 1 second = 1e9 nanoseconds
-  result := true;
-end;
-
 function GetTickCount64: Int64;
 begin
   QueryPerformanceCounter(result);
   result := result div C_MILLION; // 1 millisecond = 1e6 nanoseconds
+end;
+
+function GetUnixUTC: Int64;
+var tz: timeval;
+begin
+  fpgettimeofday(@tz,nil);
+  result := tz.tv_sec;
+end;
+
+function GetUnixMSUTC: Int64;
+var tz: timeval;
+begin
+  fpgettimeofday(@tz,nil);
+  result := (tz.tv_sec*1000)+tz.tv_usec div 1000;
 end;
 
 {$else}
@@ -300,16 +320,32 @@ function clock_gettime(ID: cardinal; r: ptimespec): Integer;
 function clock_getres(ID: cardinal; r: ptimespec): Integer;
   cdecl external 'libc.so' name 'clock_getres';
 const
+  CLOCK_REALTIME = 0;
   CLOCK_MONOTONIC = 4;
   CLOCK_MONOTONIC_FAST = 12; // FreeBSD specific
   CLOCK_MONOTONIC_TICKCOUNT = CLOCK_MONOTONIC;
+  CLOCK_REALTIME_TICKCOUNT = CLOCK_REALTIME;
 {$endif}
 
 function GetTickCount64: Int64;
 var tp: timespec;
 begin
   clock_gettime(CLOCK_MONOTONIC_TICKCOUNT,@tp);
-  Result := (Int64(tp.tv_sec) * 1000) + (tp.tv_nsec div 1000000);
+  Result := (Int64(tp.tv_sec) * C_THOUSAND) + (tp.tv_nsec div 1000000); // in ms
+end;
+
+function GetUnixMSUTC: Int64;
+var r: timespec;
+begin
+  clock_gettime(CLOCK_REALTIME_TICKCOUNT,@r);
+  result := (Int64(r.tv_sec) * C_THOUSAND) + (r.tv_nsec div 1000000); // in ms
+end;
+
+function GetUnixUTC: Int64;
+var r: timespec;
+begin
+  clock_gettime(CLOCK_REALTIME_TICKCOUNT,@r);
+  result := r.tv_sec;
 end;
 
 procedure QueryPerformanceCounter(var Value: Int64);
@@ -319,18 +355,13 @@ begin
   value := r.tv_nsec+r.tv_sec*C_BILLION;
 end;
 
-function QueryPerformanceFrequency(var Value: Int64): boolean;
-var r : TTimeSpec;
-    FIsHighResolution : boolean;
-begin
-  FIsHighResolution := (clock_getres(CLOCK_MONOTONIC,@r) = 0);
-  FIsHighResolution := FIsHighResolution and (r.tv_nsec <> 0);
-  if (r.tv_nsec <> 0) then
-    value := C_BILLION div (r.tv_nsec+(r.tv_sec*C_BILLION));
-  result := FIsHighResolution;
-end;
-
 {$endif Darwin}
+
+function QueryPerformanceFrequency(var Value: Int64): boolean;
+begin
+  Value := C_BILLION; // 1 second = 1e9 nanoseconds
+  result := true;
+end;
 
 function SetFilePointer(hFile: cInt; lDistanceToMove: TOff;
   lpDistanceToMoveHigh: Pointer; dwMoveMethod: cint): TOff;
@@ -349,6 +380,11 @@ end;
 procedure SetEndOfFile(hFile: cInt);
 begin
   FpFtruncate(hFile,FPLseek(hFile,0,SEEK_CUR));
+end;
+
+procedure FlushFileBuffers(hFile: cInt);
+begin
+  FpFsync(hFile);
 end;
 
 function GetLastError: longint;
@@ -401,7 +437,7 @@ var uts: UtsName;
         result := result*10+c;
       inc(P);
     until false;
-    if P^='.' then
+    if P^ in ['.','-',' '] then
       inc(P);
   end;
 begin
@@ -409,9 +445,10 @@ begin
     P := @uts.release;
     KernelRevision := GetNext shl 16+GetNext shl 8+GetNext;
     {$ifndef BSD}
-    if KernelRevision>=$020620 then // expects kernel 2.6.32 or higher
-      CLOCK_MONOTONIC_TICKCOUNT := CLOCK_MONOTONIC_COARSE else
-      CLOCK_MONOTONIC_TICKCOUNT := CLOCK_MONOTONIC;
+    if KernelRevision>=$020620 then begin // expects kernel 2.6.32 or higher
+      CLOCK_MONOTONIC_TICKCOUNT := CLOCK_MONOTONIC_COARSE;
+      CLOCK_REALTIME_TICKCOUNT := CLOCK_REALTIME_COARSE;
+    end;
     {$endif BSD}
   end;
   {$ifdef Darwin}
@@ -420,7 +457,84 @@ begin
   {$endif}
 end;
 
+
+type
+  TExternalLibraries = object
+    Loaded: boolean;
+    {$ifdef LINUX}
+    pthread: pointer;
+    {$ifndef BSD} // see https://stackoverflow.com/a/7989973/458259
+    pthread_setname_np: function(thread: pointer; name: PAnsiChar): LongInt; cdecl;
+    {$endif BSD}
+    {$endif LINUX}
+    procedure EnsureLoaded;
+    procedure Done;
+  end;
+var
+  ExternalLibraries: TExternalLibraries;
+
+procedure TExternalLibraries.EnsureLoaded;
+begin
+  if Loaded then
+    exit;
+  {$ifdef LINUX}
+  pthread := dlopen({$ifdef ANDROID}'libc.so'{$else}'libpthread.so.0'{$endif}, RTLD_LAZY);
+  if pthread <> nil then begin
+    {$ifndef BSD}
+    pointer(pthread_setname_np) := dlsym(pthread, 'pthread_setname_np');
+    {$endif BSD}
+  end;
+  {$endif}
+  Loaded := true;
+end;
+
+procedure TExternalLibraries.Done;
+begin
+  if not Loaded then
+    exit;
+  {$ifdef LINUX}
+  if pthread <> nil then
+    dlclose(pthread);
+  {$endif}
+  Loaded := false;
+end;
+
+procedure SetUnixThreadName(ThreadID: TThreadID; const Name: RawByteString);
+var trunc: array[0..15] of AnsiChar; // truncated to 16 chars
+    i,L: integer;
+begin
+  if Name = '' then
+    exit;
+  L := 0; // trim unrelevant spaces and prefixes when filling the 16 chars 
+  i := 1;
+  if Name[1] = 'T' then
+    if PCardinal(Name)^ = ord('T') + ord('S') shl 8 + ord('Q') shl 16 + ord('L') shl 24 then
+      i := 5
+    else
+      i := 2;
+  while i <= length(Name) do begin
+    if Name[i]>' ' then begin
+      trunc[L] := Name[i];
+      inc(L);
+      if L = high(trunc) then
+        break;
+    end;
+    inc(i);
+  end;
+  if L = 0 then
+    exit;
+  trunc[L] := #0;
+  {$ifndef BSD}
+  ExternalLibraries.EnsureLoaded;
+  if Assigned(ExternalLibraries.pthread_setname_np) then
+    ExternalLibraries.pthread_setname_np(pointer(ThreadID), @trunc);
+  {$endif}
+end;
+
 initialization
   GetKernelRevision;
+
+finalization
+  ExternalLibraries.Done;
 {$endif Linux}
 end.

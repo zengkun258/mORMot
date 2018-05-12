@@ -6,7 +6,7 @@ unit dddInfraEmail;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit dddInfraEmail;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -59,6 +59,7 @@ uses
   SynCommons,
   SynTests,
   SynCrypto,
+  SynTable, // for TSynFilter and TSynValidate
   mORMot,
   mORMotDDD,
   dddDomUserTypes,
@@ -127,7 +128,8 @@ type
   TDDDEmailServiceAbstract = class(TCQRSQueryObjectRest,IDomUserEmailCheck)
   protected
     fEmailValidate: TSynValidate;
-    function CheckEmailCorrect(aEmail: TSQLRecordEmailAbstract): boolean; virtual;
+    function CheckEmailCorrect(aEmail: TSQLRecordEmailAbstract;
+      var aResult: TCQRSResult): boolean; virtual;
     procedure SetEmailValidate(const Value: TSynValidate); virtual;
   public
     constructor Create(aRest: TSQLRest); override;
@@ -244,13 +246,13 @@ begin
 end;
 
 function TDDDEmailServiceAbstract.CheckEmailCorrect(
-  aEmail: TSQLRecordEmailAbstract): boolean;
+  aEmail: TSQLRecordEmailAbstract; var aResult: TCQRSResult): boolean;
 var msg: string;
 begin
   if (aEmail<>nil) and fEmailValidate.Process(0,aEmail.Email,msg) and
      aEmail.FilterAndValidate(Rest,msg) then
     result := true else  begin
-    CqrsSetResultString(cqrsDDDValidationFailed,msg);
+    CqrsSetResultString(cqrsDDDValidationFailed,msg,aResult);
     result := false;
   end;
 end;
@@ -261,8 +263,8 @@ var msg: string;
 begin
   CqrsBeginMethod(qaNone,result);
   if fEmailValidate.Process(0,aEmail,msg) then
-    CqrsSetResult(cqrsSuccess) else
-    CqrsSetResultString(cqrsDDDValidationFailed,msg);
+    CqrsSetResult(cqrsSuccess,result) else
+    CqrsSetResultString(cqrsDDDValidationFailed,msg,result);
 end;
 
 function TDDDEmailServiceAbstract.CheckRecipients(
@@ -273,10 +275,10 @@ begin
   CqrsBeginMethod(qaNone,result);
   for i := 0 to high(aEMails) do
     if not fEmailValidate.Process(0,aEmails[i],msg) then begin
-      CqrsSetResultString(cqrsDDDValidationFailed,msg);
+      CqrsSetResultString(cqrsDDDValidationFailed,msg,result);
       exit;
     end;
-  CqrsSetResult(cqrsSuccess);
+  CqrsSetResult(cqrsSuccess,result);
 end;
 
 procedure TDDDEmailServiceAbstract.SetEmailValidate(
@@ -323,9 +325,7 @@ begin
   signature := Copy(Ctxt.URIBlobFieldName,1,SHA256DIGESTSTRLEN);
   if length(signature)<>SHA256DIGESTSTRLEN then
     exit;
-  code := Copy(Ctxt.URIBlobFieldName,SHA256DIGESTSTRLEN+1,200);
-  Base64FromURI(code);
-  code := Base64ToBin(code);
+  code := Base64uriToBin(Copy(Ctxt.URIBlobFieldName,SHA256DIGESTSTRLEN+1,200));
   Split(code,#1,logon,email);
   if (logon='') or (email='') then
     exit;
@@ -359,14 +359,12 @@ procedure TDDDEmailValidationService.SetURIForServer(
   aSuccessRedirectURI, aValidationMethodName: RawUTF8);
 begin
   fSuccessRedirectURI := Trim(aSuccessRedirectURI);
-  fValidationServerRoot := Trim(aRestServerPublicRootURI);
+  fValidationServerRoot := IncludeTrailingURIDelimiter(Trim(aRestServerPublicRootURI));
   if (aRestServerPublic=nil) or (fSuccessRedirectURI='') or (fValidationServerRoot='') then
     raise EDDDEmail.CreateUTF8('Invalid %.SetURIForServer(%,"%","%")',
       [self,aRestServerPublic,fValidationServerRoot,fSuccessRedirectURI]);
   if not IdemPChar(pointer(fValidationServerRoot),'HTTP') then
     fValidationServerRoot := 'http://'+fValidationServerRoot;
-  if fValidationServerRoot[Length(fValidationServerRoot)]<>'/' then
-    fValidationServerRoot := fValidationServerRoot+'/';
   fValidationMethodName := Trim(aValidationMethodName);
   if fValidationMethodName='' then
    fValidationMethodName := 'EmailValidate'; // match method name by default
@@ -406,14 +404,14 @@ begin
   EmailValidation := GetEmailValidation(aLogonName);
   try
     if EmailValidation.IsValidated(email) then begin
-      CqrsSetResultMsg(cqrsSuccess,'Already validated');
+      CqrsSetResultMsg(cqrsSuccess,'Already validated',result);
       exit;
     end;
     if EmailValidation=nil then begin
       EmailValidation := RestClass.Create;
       EmailValidation.Email := aEmail;
       EmailValidation.Logon := aLogonName;
-      if not CheckEmailCorrect(EmailValidation) then
+      if not CheckEmailCorrect(EmailValidation,result) then
         exit;
     end else
       if EmailValidation.Email<>email then
@@ -427,12 +425,12 @@ begin
     msg := Template.ComputeMessage(context,aTemplate.FileName);
     if msg='' then
       CqrsSetResultMsg(cqrsInvalidContent,
-        'Impossible to render template "%"',[aTemplate.FileName]) else
+        'Impossible to render template "%"',[aTemplate.FileName],result) else
       if EMailer.SendEmail(TRawUTF8DynArrayFrom([aEmail]),
           aTemplate.SenderEmail,aTemplate.Subject,'',msg)=cqrsSuccess then
         if Rest.AddOrUpdate(EmailValidation)=0 then
           CqrsSetResultError(cqrsDataLayerError) else
-          CqrsSetResultMsg(cqrsSuccess,'Validation email sent');
+          CqrsSetResultMsg(cqrsSuccess,'Validation email sent',result);
   finally
     EmailValidation.Free;
   end;

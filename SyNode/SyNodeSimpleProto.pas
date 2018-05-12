@@ -5,10 +5,10 @@ unit SyNodeSimpleProto;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
-    SyNode for mORMot Copyright (C) 2017 Pavel Mashlyakovsky & Vadim Orel
+    SyNode for mORMot Copyright (C) 2018 Pavel Mashlyakovsky & Vadim Orel
       pavel.mash at gmail.com
 
     Some ideas taken from
@@ -53,22 +53,18 @@ unit SyNodeSimpleProto;
   ***** END LICENSE BLOCK *****
 
 
-  ---------------------------------------------------------------------------
-   Download the mozjs-45 library at
-     x32: https://unitybase.info/downloads/mozjs-45.zip
-     x64: https://unitybase.info/downloads/mozjs-45-x64.zip
-  ---------------------------------------------------------------------------
-
-
   Version 1.18
   - initial release. Use SpiderMonkey 45
 
 }
+
+{$I Synopse.inc}
+
 interface
 
 uses
   SpiderMonkey,
-  SyNodeProto, 
+  SyNodeProto,
   mORMot { PClassProp };
 
 type
@@ -77,8 +73,12 @@ type
   //  - all published methods of a original calss MUST have a TSMFastNativeCall signature
   TSMSimpleRTTIProtoObject = class(TSMCustomProtoObject)
   protected
-    fCP: PClassProp;
     procedure InitObject(aParent: PJSRootedObject); override;
+    /// Can be used to optimize JS engine proerty access.
+    // - if isReadonly setted to true property become read-only for JS engine
+    // - if property valu don't changed during object lifecircle set isDeterministic=true
+    //   to prevent creating of JS value every time JS engine read property value
+    // If method return false propery will not be created in the JS
     function GetPropertyAddInformation(cx: PJSContext; PI:PPropInfo; out isReadonly: boolean;
       out isDeterministic: boolean; aParent: PJSRootedObject): boolean; virtual;
     function GetJSvalFromProp(cx: PJSContext; PI:PPropInfo; instance: PSMInstanceRecord): jsval; virtual;
@@ -86,96 +86,14 @@ type
 
   end;
 
-function CreateJSInstanceObjForSimpleRTTI(cx: PJSContext; AInstance: TObject; aParent: PJSRootedObject): jsval;
+function CreateJSInstanceObjForSimpleRTTI(cx: PJSContext; AInstance: TObject; aParent: PJSRootedObject=nil): jsval;
 
 implementation
 
 uses
   {$ifdef ISDELPHIXE2}System.SysUtils,{$else}SysUtils,{$endif}
+  SyNode,
   SynCommons;
-
-//type
-//  TSMRTTIIterator = record
-//    curIdx: integer;
-//    curIdxM: integer;
-////    PI: PPropInfo;
-//  end;
-//  PSMRTTIIterator = ^TSMRTTIIterator;
-
-//function SMRTTI_NewEnumerate(cx: PJSContext; var obj: PJSObject; enum_op: JSIterateOp; var state: jsval; idp: pjsid): JSBool; cdecl;
-//var
-//  ObjRec: PSMObjectRecord;
-//  Proto: TSMSimpleRTTIProtoObject;
-//  Inst: PSMInstanceRecord;
-//  val: jsval;
-//  cnt: integer;
-//  cntM: integer;
-//  iterator: PSMRTTIIterator;
-////  PI: PPropInfo;
-//begin
-//  ObjRec := JS_GetPrivate(obj);
-//  if Assigned(ObjRec) and (ObjRec.IsMagicCorrect) and (ObjRec.DataType=otProto) then begin
-//    Proto := ObjRec.Data;
-//    cnt := length(proto.FJSProps) - 1;
-//    cntM := 0;
-//  end else if Assigned(ObjRec) and (ObjRec.IsMagicCorrect) and (ObjRec.DataType=otInstance) then begin
-//    Inst := ObjRec.Data;
-//    Proto := TSMSimpleRTTIProtoObject(Inst.proto);
-////    cnt := Proto.fCP.PropCount;
-////    cnt := length(proto.FRTTIPropsCache);
-//    cnt := length(proto.FJSProps) - 1;
-//    cntM := 0;
-//  end else begin
-//    Proto := nil;
-//    cnt := 0;
-//    cntM := 0;
-//  end;
-//
-//  case enum_op of
-//    JSENUMERATE_INIT,
-//    JSENUMERATE_INIT_ALL: begin // Create new iterator state over enumerable properties.
-//      if cnt = 0 then
-//        state := INT_TO_JSVAL(0)
-//      else begin
-//        New(iterator);
-//        iterator.curIdx := 0;
-//        iterator.curIdxM := 0;
-////        iterator.PI := @Proto.fCP.PropList;
-//        state := PRIVATE_TO_JSVAL(iterator);
-//      end;
-//      if idp<>nil then
-//        JS_ValueToId(cx, INT_TO_JSVAL(cnt+cntM), idp^);
-//    end;
-//    JSENUMERATE_NEXT: begin // Iterate once.
-//      if JSVAL_IS_INT(state) and (JSVAL_TO_INT(state) = 0) then begin
-//        state := JSVAL_NULL;
-//      end else begin
-//         iterator := PSMRTTIIterator(JSVAL_TO_PRIVATE(state));
-//         if (iterator<>nil) and (iterator.curIdx < cnt) then begin
-////           val := cx.NewJSString(PI.Name).ToJSVal;
-//           val := cx.NewJSString(proto.FJSProps[iterator.curIdx].name).ToJSVal;
-//           JS_ValueToId(cx,  val, idp^);
-//           inc(iterator.curIdx);
-////           PI := PI.Next;
-//         end else if (iterator<>nil) and (iterator.curIdxM < cntM) then begin
-////         todo: enumerate methods
-////           JS_ValueToId(cx,  val, idp^);
-//           inc(iterator.curIdxM);
-//         end else begin
-//           Dispose(iterator);
-//           state := JSVAL_NULL;
-//         end;
-//      end
-//    end;
-//    JSENUMERATE_DESTROY: begin // Destroy iterator state.
-//      if not (JSVAL_IS_INT(state) and (JSVAL_TO_INT(state) = 0)) then begin
-//        Dispose(PSMRTTIIterator(JSVAL_TO_PRIVATE(state)));
-//      end;
-//      state := JSVAL_NULL;
-//    end;
-//  end;
-//  Result := JS_TRUE;
-//end;
 
 function JSRTTINativeMethodCall(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
 var
@@ -189,7 +107,6 @@ var
   mc: PSMMethodRec;
   proto: PJSObject;
 begin
-  Result := False;
   try
 //    JS_ConvertValue(cx,JS_CALLEE(cx, vp),JSTYPE_FUNCTION, lfuncVal);
     lfunc := vp.calleObject;
@@ -204,13 +121,14 @@ begin
     if mc = nil then
       raise ESMException.CreateUTF8('The class has no method "%"', [lfunc.GetFunctionId().ToSynUnicode(cx)]);
 
-    fCallMethod.Code := PMethodInfo(mc^.method)^.MethodAddr;
+    fCallMethod.Code := mc^.method;
     fCallMethod.Data := Pointer(Inst.instance);
     fCallFn := TSMFastNativeCall(fCallMethod);
     Result := fCallFn(cx, argc, vp);
   except
-    on E: Exception do
-    begin
+    on E: Exception do begin
+      Result := False;
+      vp.rval := JSVAL_VOID;
       JSError(cx, E);
     end;
   end;
@@ -220,17 +138,26 @@ function GetPropCacheForWrite(cx: PJSContext; obj: PJSObject; id: jsid; var aObj
 var
   i: Integer;
   propName: AnsiString;
+  found: boolean;
 begin
   Result := nil;
   if not IsInstanceObject(cx, obj, aObj) then
     raise ESMException.Create(SM_NOT_A_NATIVE_OBJECT);
   propName := PJSString(id).ToAnsi(cx);
-
-  for I := 0 to Length((AObj.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache)-1 do
-    if (AObj.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i].jsName = propName then begin
-      Result := @(AObj.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i];
+  found := False;
+  for I := 0 to Length((AObj.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache)-1 do begin
+    Result := @(AObj.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i];
+{$IFDEF SM52}
+    if strComparePropGetterSetter(propName, Result.jsName, false) then begin
+{$ELSE}
+    if Result.jsName = propName then begin
+{$ENDIF}
+      found := True;
       Break;
     end;
+  end;
+  if not found then
+    raise ESMException.CreateFmt('% not found', [propName]);
 
   if Result.isReadOnly then
     raise ESMException.CreateUtf8('Property %.% is ReadOnly', [aObj.proto.jsObjName, Result.jsName]);
@@ -241,21 +168,22 @@ var
   Instance: PSMInstanceRecord;
   PI: PPropInfo;
   id: jsid;
+  val: jsval;
 begin
   id := jsid(vp.calleObject.FunctionId);
   PI := GetPropCacheForWrite(cx, vp.thisObject[cx], id, Instance).mbr;
-
-  case PI.PropType^^.Kind of
+  val := vp.argv[0];
+  case PI.PropType^{$IFNDEF FPC}^{$ENDIF}.Kind of
     tkInteger, tkEnumeration, tkSet:
-      PI.SetOrdValue(Instance^.instance,vp.argv[0].asInteger);
+      PI.SetOrdValue(Instance^.instance,val.asInteger);
     tkInt64:
-      PI.SetInt64Value(Instance^.instance, vp.argv[0].asInt64);
+      PI.SetInt64Value(Instance^.instance, val.asInt64);
     tkFloat:
-      PI.SetExtendedValue(Instance^.instance, vp.argv[0].asDouble);
-    tkLString:
-      PI.SetLongStrValue(Instance^.instance, vp.argv[0].asJsString.ToUTF8(cx));
+      PI.SetExtendedvalue(Instance^.instance, val.asDouble);
+    tkLString{$IFDEF FPC}, tkAString{$ENDIF}:
+      PI.SetLongStrValue(Instance^.instance, val.asJsString.ToUTF8(cx));
     {$ifdef UNICODE} tkUString:
-      PI.SetUnicodeStrValue(Instance^.instance, vp.argv[0].asJsString.ToSynUnicode(cx));
+      PI.SetUnicodeStrValue(Instance^.instance, val.asJsString.ToSynUnicode(cx));
     {$endif}
   else
     raise ESMException.Create('NotImplemented');
@@ -278,6 +206,7 @@ var
   i: Integer;
   id: PJSString;
   prop_name: AnsiString;
+  found: Boolean;
 begin
   try
     this := vp.thisObject[cx];
@@ -295,12 +224,20 @@ begin
     prop_name := ID.ToAnsi(cx);
 
     propCache := nil;
+    found := false;
     for i := 0 to Length((Instance.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache)-1 do begin
-      if (Instance.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i].jsName = prop_name then begin
-        propCache := @(Instance.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i];
+      propCache := @(Instance.proto as TSMSimpleRTTIProtoObject).FRTTIPropsCache[i];
+{$IFDEF SM52}
+      if strComparePropGetterSetter(prop_name, propCache.jsName, true) then begin
+{$ELSE}
+        if propCache.jsName = prop_name then begin
+{$ENDIF}
+        found := True;
         Break;
       end;
     end;
+    if not found then
+      raise ESMException.CreateFmt('% not found', [prop_name]);
 
     if (propCache.DeterministicIndex>=0) then
       storedVal := this.ReservedSlot[propCache.DeterministicIndex]
@@ -311,10 +248,10 @@ begin
       rval := storedVal
     else begin
       PI := propCache.mbr;
-      rval := (Instance.proto  as TSMSimpleRTTIProtoObject).GetJSvalFromProp(cx, PI, Instance);
+      rval := (Instance.proto as TSMSimpleRTTIProtoObject).GetJSvalFromProp(cx, PI, Instance);
       if (propCache.DeterministicIndex>=0) then begin
+        // all jsvals in reserved slots are rooted automatically
         this.ReservedSlot[propCache.DeterministicIndex] := rval;
-//        Instance.storedVals[propCache.DeterministicIndex] := cx.NewRootedValue(rval);
       end;
     end;
 
@@ -336,15 +273,16 @@ var
   FInst: PSMInstanceRecord;
   tmp: RawUTF8;
   obj: TObject;
+  arr: TDynArray;
 begin
-  case PI.PropType^^.Kind of
-    tkInteger, tkEnumeration, tkSet:
+  case PI.PropType^.Kind of
+    tkInteger, tkEnumeration, tkSet{$ifdef FPC},tkBool{$endif}:
       Result.asInteger := PI.GetOrdValue(Instance^.instance);
     tkInt64:
       Result.asInt64 := PI.GetInt64Value(Instance^.instance);
     tkFloat:
       Result.asDouble := PI.GetExtendedValue(Instance^.instance);
-    tkLString: begin
+    tkLString{$ifdef FPC},tkAString{$endif}: begin
       PI.GetLongStrValue(Instance^.instance, tmp);
       Result.asJSString := cx.NewJSString(tmp);
     end;
@@ -359,6 +297,12 @@ begin
        else
          Result := JSVAL_NULL;
     end;
+    tkDynArray: begin
+       // MPV. WARNING. Every access to dyn array property will create a JS Array, so
+       // I recommend avoiding use of the dynamic arrays
+       arr := PI.GetDynArray(Instance^.instance);
+       Result.asJson[cx] := arr.SaveToJSON(true);
+    end;
   else
     raise ESMException.Create('NotImplemented');
   end;
@@ -370,127 +314,103 @@ var
   i: integer;
   idx: Integer;
 
-  C: PtrInt;
-  M: PMethodInfo;
+  CT: TClass;
   n: integer;
-  MethodName: SynUnicode;
   added: boolean;
   isReadonly: boolean;
   isDeterministic: boolean;
-  skip: boolean;
+  exclude: boolean;
+  methods: TPublishedMethodInfoDynArray;
 begin
-  C := PtrInt(fRttiCls);
-
-  while C<>0 do begin
-    M := PPointer(C+vmtMethodTable)^;
-    if M<>nil then begin
-      {$ifdef FPC}
-      n := PCardinal(M)^;
-      inc(PCardinal(M));
-      {$else}
-      n := PWord(M)^;
-      inc(PWord(M));
-      {$endif}
-      for i := 1 to n do begin
-        MethodName := UTF8ToSynUnicode(ShortStringToUTF8(M^.Name{$ifdef FPC}^{$endif}));
-        idx := FMethodsDA.FindHashedForAdding(MethodName, added);
-        if added then with FMethods[idx] do begin
-          ujsName := MethodName;
-          method := m;
-          nargs := 0;
-          isNativeCall := true;
-          call := @JSRTTINativeMethodCall;
-          flags := [jspEnumerate];
-        end;
-        {$ifdef FPC}
-        inc(M);
-        {$else}
-        inc(PByte(M),M^.Len);
-        {$endif}
-      end;
+  for i := 0 to GetPublishedMethods(nil, methods, fRttiCls) - 1 do begin
+    idx := FMethodsDA.FindHashedForAdding(methods[i].Name, added);
+    if added then with FMethods[idx] do begin
+      ujsName := UTF8ToSynUnicode(methods[i].Name);
+      method := methods[i].Method.Code;
+      nargs := 0;
+      isNativeCall := true;
+      call := @JSRTTINativeMethodCall;
+      flags := [jspEnumerate];
     end;
-    C := PPtrInt(C+vmtParent)^;
-    if C=0 then
-      break else
-      C := PPtrInt(C)^;
   end;
 
   fDeterministicCnt := 0;
-  C := PtrInt(fRttiCls);
-  while C<>0 do begin
-    fCP := InternalClassProp(TClass(C));
-    if fCP<>nil then begin
-      PI := @fCP.PropList;
-      for i := 0 to fCP.PropCount -1 do begin
-        idx := Length(FJSProps);
+  CT := fRttiCls;
+  repeat
+    for i := 1 to InternalClassPropInfo(CT,PI) do begin
+      idx := Length(FJSProps);
 
-        skip := PI.PropType^^.Kind = tkMethod;
-        if not skip then
-          for n := 0 to idx - 1 do
-            if camelize(PI.Name) = FRTTIPropsCache[n].jsName then begin
-              skip := true;
-              break;
-            end;
-
-        if skip or not GetPropertyAddInformation(fCx, PI, isReadonly, isDeterministic, aParent) then begin
-          PI := PI^.Next;
-          Continue;
+      exclude := PI^.PropType^.Kind = tkMethod;
+      if not exclude then
+        for n := 0 to idx - 1 do begin
+          if StrLIComp(PAnsiChar(@PI.Name[1]), PAnsiChar(FRTTIPropsCache[n].jsName), length(PI.Name)) = 0 then begin
+            exclude := true;
+            break;
+          end;
         end;
 
-        SetLength(FJSProps, idx + 1);
-        SetLength(FRTTIPropsCache, idx + 1);
-        FRTTIPropsCache[idx].jsName := camelize(PI.Name);
-        FRTTIPropsCache[idx].mbr := PI;
-        FRTTIPropsCache[idx].typeInfo := PI^.PropType^;
-        if isDeterministic then begin
-          FRTTIPropsCache[idx].DeterministicIndex := fDeterministicCnt;
-          Inc(fDeterministicCnt);
-        end else
-          FRTTIPropsCache[idx].DeterministicIndex := -1;
-
-        FJSProps[idx].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_SHARED;
-        FJSProps[idx].Name := PCChar(RTTIPropsCache[idx].jsName);
-    //    FJSProps[idx].tinyid := idx;
-        FJSProps[idx].setter.native.info := nil;
-        FJSProps[idx].setter.native.op := JSRTTIPropWrite;
-        FJSProps[idx].getter.native.info := nil;
-        FJSProps[idx].getter.native.op := JSRTTIPropRead;
-
+      if exclude or not GetPropertyAddInformation(fCx, PI, isReadonly, isDeterministic, aParent) then begin
         PI := PI^.Next;
+        Continue;
       end;
+
+      case PI^.PropType^{$IFNDEF FPC}^{$ENDIF}.Kind of
+        tkChar, {$IFDEF FPC}tkLString{$ELSE}tkString{$ENDIF}, tkWChar, tkWString, tkVariant:
+        begin
+          raise ESMException.CreateUtf8('Unsupported class property %.%', [FjsObjName, PI^.Name]);
+        end;
+//		lazy create class type property prototypes on first read (in TSMSimpleRTTIProtoObject.GetJSvalFromProp)
+//        tkClass:
+//          defineClass(Cx, PI^.PropType^{$IFNDEF FPC}^{$ENDIF}.ClassType^.ClassType, TSMSimpleRTTIProtoObject, aParent);
+        tkEnumeration:
+          defineEnum(fCx, PI^.PropType{$IFNDEF FPC_OLDRTTI}^{$ENDIF}, aParent);
+      end;
+
+      SetLength(FJSProps, idx + 1);
+      SetLength(FRTTIPropsCache, idx + 1);
+      FRTTIPropsCache[idx].jsName := camelize(PI.Name);
+      FRTTIPropsCache[idx].mbr := PI;
+      FRTTIPropsCache[idx].typeInfo := PI^.PropType{$IFNDEF FPC}^{$ENDIF};
+      FRTTIPropsCache[idx].isReadOnly := isReadonly or isDeterministic;
+      if isDeterministic then begin
+        FRTTIPropsCache[idx].DeterministicIndex := fDeterministicCnt;
+        Inc(fDeterministicCnt);
+      end else
+        FRTTIPropsCache[idx].DeterministicIndex := -1;
+
+      FJSProps[idx].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_SHARED;
+      FJSProps[idx].Name := PCChar(RTTIPropsCache[idx].jsName);
+  //    FJSProps[idx].tinyid := idx;
+      FJSProps[idx].setter.native.info := nil;
+      FJSProps[idx].setter.native.op := JSRTTIPropWrite;
+      FJSProps[idx].getter.native.info := nil;
+      FJSProps[idx].getter.native.op := JSRTTIPropRead;
+      PI := PI^.Next;
     end;
-    C := PPtrInt(C+vmtParent)^;
-    if C=0 then
-      break else
-      C := PPtrInt(C)^;
-  end;
+    CT := CT.ClassParent;
+  until CT=nil;
   inherited; //MPV !! do not use  FMethodsDA.Add()
 end;
 
 function TSMSimpleRTTIProtoObject.GetPropertyAddInformation(cx: PJSContext;
   PI: PPropInfo; out isReadonly: boolean; out isDeterministic: boolean; aParent: PJSRootedObject): boolean;
 begin
-  case PI^.PropType^^.Kind of
-    tkChar, tkString, tkWChar, tkWString, tkVariant:
-    begin
-      raise ESMException.CreateUtf8('Unsupported class property %.%', [FjsObjName, PI^.Name]);
-    end;
-    tkClass:
-      defineClass(Cx, PI^.PropType^^.ClassType^.ClassType, TSMSimpleRTTIProtoObject, aParent);
-    tkEnumeration:
-      defineEnum(Cx, PI.PropType^, aParent);
-  end;
   isReadonly := false;
   isDeterministic := false;
   result := true;
 end;
 
-function CreateJSInstanceObjForSimpleRTTI(cx: PJSContext; AInstance: TObject; aParent: PJSRootedObject): jsval;
+function CreateJSInstanceObjForSimpleRTTI(cx: PJSContext; AInstance: TObject; aParent: PJSRootedObject=nil): jsval;
 var
   Inst: PSMInstanceRecord;
+  eng: TSMEngine;
 begin
   new(Inst);
-  Result := Inst.CreateForObj(cx, AInstance, TSMSimpleRTTIProtoObject, aParent);
+  if (aParent = nil) then begin
+    eng := cx.PrivateData;
+    Result := Inst.CreateForObj(cx, AInstance, TSMSimpleRTTIProtoObject, eng.GlobalObject);
+  end else
+    Result := Inst.CreateForObj(cx, AInstance, TSMSimpleRTTIProtoObject, aParent);
 end;
 
 end.

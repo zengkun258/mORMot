@@ -5,10 +5,10 @@ unit SyNodeProto;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
-    SyNode for mORMot Copyright (C) 2017 Pavel Mashlyakovsky & Vadim Orel
+    SyNode for mORMot Copyright (C) 2018 Pavel Mashlyakovsky & Vadim Orel
       pavel.mash at gmail.com
 
     Some ideas taken from
@@ -53,13 +53,6 @@ unit SyNodeProto;
   ***** END LICENSE BLOCK *****
 
 
-  ---------------------------------------------------------------------------
-   Download the mozjs-45 library at
-     x32: https://unitybase.info/downloads/mozjs-45.zip
-     x64: https://unitybase.info/downloads/mozjs-45-x64.zip
-  ---------------------------------------------------------------------------
-
-
   Version 1.18
   - initial release. Use SpiderMonkey 45
 
@@ -67,6 +60,7 @@ unit SyNodeProto;
 
 interface
 
+{$I Synopse.inc} // define HASINLINE
 {$I SyNode.inc}
 
 uses
@@ -192,7 +186,58 @@ function camelize(const S: AnsiString): AnsiString;
 const
   SM_NOT_A_NATIVE_OBJECT = 'Not a native object';
 
+function strComparePropGetterSetter(prop_name, jsName: AnsiString; isGetter: boolean): Boolean; {$ifdef HASINLINE}inline;{$endif}
+// for can make strComparePropGetterSetter inlined
+const prefix: array[boolean] of TShort4 = ('set ','get ');
+
+// called when the interpreter wants to create an object through a new TMyObject ()
+function SMCustomObjectConstruct(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean;  cdecl;
+// called when the interpreter destroys the object
+{$IFDEF SM52}
+procedure SMCustomObjectDestroy(var fop: JSFreeOp; obj: PJSObject); cdecl;
+{$ELSE}
+procedure SMCustomObjectDestroy(var rt: PJSRuntime; obj: PJSObject); cdecl;
+{$ENDIF}
+
 implementation
+
+function strComparePropGetterSetter(prop_name, jsName: AnsiString; isGetter: boolean): Boolean;
+var jsNameLen: integer;
+    ch1, ch2: PAnsiChar;
+begin
+  jsNameLen := Length(jsName);
+  Result := (jsNameLen > 0) and (Length(prop_name) = jsNameLen + 4) and
+            ((PInteger(@prop_name[1]))^ = (PInteger(@prefix[isGetter][1]))^);
+  if Result then begin
+    ch1 := @jsName[1];
+    ch2 := @prop_name[5];
+    while jsNameLen >= 4 do begin
+      if PInteger(ch1)^ <> PInteger(ch2)^ then begin
+        result := False;
+        exit;
+      end;
+      inc(ch1, 4);
+      inc(ch2, 4);
+      Dec(jsNameLen, 4);
+    end;
+    if jsNameLen >= 2 then begin
+      if PWord(ch1)^ <> PWord(ch2)^ then begin
+        result := False;
+        exit;
+      end;
+      inc(ch1, 2);
+      inc(ch2, 2);
+      Dec(jsNameLen, 2);
+    end;
+    if jsNameLen = 1 then begin
+      if ch1^ <> ch2^ then begin
+        result := False;
+        exit;
+      end;
+    end;
+  end;
+end;
+
 
 function camelize(const S: AnsiString): AnsiString;
 var
@@ -210,19 +255,25 @@ begin
   PAnsiChar(Result)^ := Ch;
 end;
 
-function SMCustomObjectConstruct(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean;  cdecl; forward;
-procedure SMCustomObjectDestroy(var rt: PJSRuntime; obj: PJSObject); cdecl; forward;
-
 const
 // Magic constant for TSMObjectRecord
   SMObjectRecordMagic: Word = 43857;
-
+{$IFDEF SM52}
+  jsdef_classOpts: JSClassOps = (
+    finalize: SMCustomObjectDestroy; // call then JS object GC}
+    construct: SMCustomObjectConstruct
+  );
+  jsdef_class: JSClass = (name: '';
+    flags: uint32(JSCLASS_HAS_PRIVATE);
+    cOps: @jsdef_classOpts
+    );
+{$ELSE}
   jsdef_class: JSClass = (name: '';
     flags: uint32(JSCLASS_HAS_PRIVATE);
     finalize: SMCustomObjectDestroy; // call then JS object GC}
     construct: SMCustomObjectConstruct
     );
-
+{$ENDIF}
 // create object var obj = new TMyObject();
 function SMCustomObjectConstruct(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
 var
@@ -246,27 +297,29 @@ begin
   end;
 end;
 
+{$IFDEF SM52}
+procedure SMCustomObjectDestroy(var fop: JSFreeOp;  obj: PJSObject); cdecl;
+{$ELSE}
 procedure SMCustomObjectDestroy(var rt: PJSRuntime; obj: PJSObject); cdecl;
+{$ENDIF}
 var
   ObjRec: PSMObjectRecord;
   Inst: PSMInstanceRecord;
   proto: TSMCustomProtoObject;
 begin
   ObjRec := obj.PrivateData;
-
   if Assigned(ObjRec) and (ObjRec.IsMagicCorrect) then
   begin
     if (ObjRec.DataType=otInstance) and Assigned(ObjRec.Data) then begin
-
       Inst := ObjRec.Data;
       Inst.freeNative;
       Dispose(Inst);
-    end;
-    if (ObjRec.DataType=otProto) and Assigned(ObjRec.Data) then begin
+    end else if (ObjRec.DataType=otProto) and Assigned(ObjRec.Data) then begin
       proto := ObjRec.Data;
       FreeAndNil(proto);
+    end else begin
+      Dispose(ObjRec.Data); // ObjRec.Data is a PSMIdxPropReader from SyNoideNewProto
     end;
-
     Dispose(ObjRec);
     obj.PrivateData := nil;
   end;
@@ -355,18 +408,20 @@ var
   val: jsval;
   obj_: PJSRootedObject;
 begin
+  if (ti^.Name = 'Boolean') then
+    Exit;
   s := UTF8ToSynUnicode(ShortStringToUTF8(ti^.Name));
   if (aParent.ptr.HasUCProperty(cx, Pointer(s), Length(s), found)) and found then
     exit; //enum already defined
 
   obj_ := cx.NewRootedObject(cx.NewObject(nil));
   try
-    aParent.ptr.DefineUCProperty(cx, Pointer(s), Length(s), obj_.ptr.ToJSValue, JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY, nil, nil);
+    aParent.ptr.DefineUCProperty(cx, Pointer(s), Length(s), obj_.ptr.ToJSValue, JSPROP_ENUMERATE or JSPROP_PERMANENT, nil, nil);
     with ti^.EnumBaseType^ do begin
       for i := MinValue to MaxValue do begin
         s := UTF8ToSynUnicode(GetEnumNameTrimed(i));
         val.asInteger := i;
-        obj_.ptr.DefineUCProperty(cx, Pointer(s), Length(s), val, JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY, nil, nil);
+        obj_.ptr.DefineUCProperty(cx, Pointer(s), Length(s), val, JSPROP_ENUMERATE or JSPROP_PERMANENT, nil, nil);
       end;
     end;
   finally
@@ -390,13 +445,14 @@ begin
       //create new
       result := AProto.Create(Cx, AForClass, aParent, i);
       exit;
-    end else begin
-      if IsProtoObject(cx, val, Result) then begin
-        if Result.fRttiCls = AForClass then
-          exit;
-      end else
-        raise ESMException.Create('Slot value is not ProtoObject');
-    end;
+    end else if IsProtoObject(cx, val, Result) then begin
+      if Result.fRttiCls = AForClass then
+        exit; // The class prototype has already created
+    end else if val.isString then begin
+      if val.asJSString.ToString(cx) = AForClass.ClassName then
+        exit; // The class prototype is being created right now
+    end else
+      raise ESMException.Create('Slot value is not ProtoObject');
   end;
   raise Exception.Create('defineClass Error: many proto' + AForClass.ClassName);
 end;
@@ -527,12 +583,15 @@ begin
   fRttiCls := aRttiCls;
   fCx := Cx;
   fSlotIndex := slotIndex;
+  FjsObjName := StringToAnsi7(fRttiCls.ClassName);
+
+  global := cx.CurrentGlobalOrNull;
+  global.ReservedSlot[fSlotIndex] := cx.NewJSString(fRttiCls.ClassName).ToJSVal;
 
   FMethodsDA.Init(TypeInfo(TSMMethodDynArray), FMethods);
   InitObject(aParent);
   FJSClass := GetJSClass;
 
-  FjsObjName := StringToAnsi7(fRttiCls.ClassName);
   FJSClass.Name := PCChar(FjsObjName);
   fFirstDeterministicSlotIndex := (FJSClass.flags and (JSCLASS_RESERVED_SLOTS_MASK shl JSCLASS_RESERVED_SLOTS_SHIFT))
       shr JSCLASS_RESERVED_SLOTS_SHIFT;
@@ -568,8 +627,7 @@ begin
     new(ObjRec);
     ObjRec.init(otProto,self);
     obj.PrivateData := ObjRec;
-    global := cx.CurrentGlobalOrNull;
-    global.ReservedSlot[slotIndex] := obj.ToJSValue;
+    global.ReservedSlot[fSlotIndex] := obj.ToJSValue;
   finally
     cx.EndRequest;
   end;

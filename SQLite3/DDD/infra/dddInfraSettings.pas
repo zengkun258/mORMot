@@ -6,7 +6,7 @@ unit dddInfraSettings;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit dddInfraSettings;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -69,10 +69,13 @@ uses
   mORMot,
   mORMotDDD,
   SynCrtSock,
-  SynSQLite3, mORMotSQLite3, // for internal SQlite3 database
-  SynDB, mORMotDB,           // for TDDDRestSettings on external SQL database
-  SynMongoDB, mORMotMongoDB, // for TDDDRestSettings on external NoSQL database
-  mORMotWrappers;            // for TDDDRestSettings to publish wrapper methods
+  SynSQLite3,
+  mORMotSQLite3,   // for internal SQlite3 database
+  SynDB,
+  mORMotDB,        // for TDDDRestSettings on external SQL database
+  SynMongoDB,
+  mORMotMongoDB,   // for TDDDRestSettings on external NoSQL database
+  mORMotWrappers;  // for TDDDRestSettings to publish wrapper methods
 
 
 { ----- Manage Service/Daemon settings }
@@ -122,7 +125,6 @@ type
     // - in order not to loose any log, a background thread can be created
     // and will be responsible of flushing all pending log content every
     // period of time (e.g. every 10 seconds)
-    // - this parameter is effective only under Windows by now
     property AutoFlushTimeOut: integer read fAutoFlush write fAutoFlush;
     /// by default (false), logging will use manual stack trace browsing
     // - if you experiment unexpected EAccessViolation, try to set this setting
@@ -270,7 +272,8 @@ type
     (optEraseDBFileAtStartup,
      optSQlite3FileSafeSlowMode,
      optSQlite3FileSafeNonExclusive,
-     optNoSystemUse);
+     optNoSystemUse,
+     optSQlite3File4MBCacheSize);
 
   /// define options to be used for TDDDRestSettings
   TDDDRestSettingsOptions = set of TDDDRestSettingsOption;
@@ -312,8 +315,9 @@ type
   public
     /// is able to instantiate a REST instance according to the stored definition
     // - Definition.Kind will identify the TSQLRestServer or TSQLRestClient class
-    // to be instantiated, or if equals 'MongoDB' use a full MongoDB store, or an
-    // external SQL database if it matches a TSQLDBConnectionProperties classname
+    // to be instantiated, or if equals 'MongoDB'/'MongoDBS' use a full MongoDB
+    // engine, or an external SQL database if it matches a TSQLDBConnectionProperties
+    // classname
     // - if aDefaultLocalSQlite3 is TRUE, then if Definition.Kind is '',
     // a local SQlite3 file database will be initiated
     // - if aMongoDBIdentifier is not 0, then it will be supplied to every
@@ -326,13 +330,38 @@ type
       aModel: TSQLModel; aOptions: TDDDNewRestInstanceOptions;
       aExternalDBOptions: TVirtualTableExternalRegisterOptions=[regDoNotRegisterUserGroupTables];
       aMongoDBIdentifier: word=0;
-      aMongoDBOptions: TStaticMongoDBRegisterOptions=[mrDoNotRegisterUserGroupTables]): TSQLRest; virtual;
+      aMongoDBOptions: TStaticMongoDBRegisterOptions=[mrDoNotRegisterUserGroupTables]): TSQLRest; overload; virtual;
+    /// is able to instantiate a REST instance according to the stored definition
+    // - just an overloaded version which will create an owned TSQLModel with
+    // the supplied TSQLRecord classes
+    function NewRestInstance(aRootSettings: TDDDAppSettingsAbstract;
+      const aTables: array of TSQLRecordClass; aOptions: TDDDNewRestInstanceOptions;
+      aExternalDBOptions: TVirtualTableExternalRegisterOptions=[regDoNotRegisterUserGroupTables];
+      aMongoDBIdentifier: word=0;
+      aMongoDBOptions: TStaticMongoDBRegisterOptions=[mrDoNotRegisterUserGroupTables]): TSQLRest; overload; virtual;
+    /// initialize a stand-alone TSQLRestServerDB instance
+    // - with its own database file located in DefaultDataFileName + aDBFileName
+    // - will own its own TSQLModel with aModelRoot/aModelTables
+    // - you can tune aCacheSize if the default 40MB value is not right
+    // - will eventually call CreateMissingTables
+    // - define custom TDDDRestSettingsOptions if needed
+    function NewRestServerDB(const aDBFileName: TFileName; const aModelRoot: RawUTF8;
+      const aModelTables: array of TSQLRecordClass; aOptions: TDDDRestSettingsOptions=[];
+      aCacheSize: cardinal=10000): TSQLRestServerDB;
+    /// if DB is a TSQLRestServerDB, will define the expection options
+    // - DB.FileName will be erased from disk if optEraseDBFileAtStartup is defined
+    // - force LockingMode=exclusive and Synchrounous=off unless
+    // optSQlite3FileSafeNonExclusive/optSQlite3FileSafeSlowMode options are set
+    class procedure RestServerDBSetOptions(DB: TSQLRestServer; Options: TDDDRestSettingsOptions);
     /// returns the WrapperTemplateFolder property, all / chars replaced by \
     // - so that you would be able to store the paths with /, avoiding JSON escape
-    function WrapperTemplateFolderFixed: TFileName;
+    function WrapperTemplateFolderFixed(ReturnLocalIfNoneSet: boolean=false): TFileName;
     /// returns the WrapperSourceFolder property, all / chars replaced by \
     // - so that you would be able to store the paths with /, avoiding JSON escape
     function WrapperSourceFolderFixed: TFileName;
+    /// generate API documentation corresponding to REST SOA interfaces
+    procedure WrapperGenerate(Rest: TSQLRestServer; Port: integer;
+      const DestFile: TFileName; const Template: TFileName = 'API.adoc.mustache');
     /// the default folder where database files are to be stored
     // - will be used by NewRestInstance instead of the .exe folder, if set
     property DefaultDataFolder: TFileName read fDefaultDataFolder write fDefaultDataFolder;
@@ -422,6 +451,8 @@ type
   public
     /// to be called when the application starts, to initialize settings
     // - you can specify default Description and Service identifiers
+    // - the service-related parameters are Windows specific, and will be
+    // ignored on other platforms
     procedure Initialize(
       const aDescription,aServiceName,aServiceDisplayName,aAppUserModelID: string); reintroduce; virtual;
     /// returns the folder containing .settings files - .exe folder by default
@@ -448,7 +479,7 @@ type
   /// a Factory event allowing to customize/mock a socket connection
   // - the supplied aOwner should be a TDDDSocketThread instance
   // - returns a IDDDSocket interface instance (e.g. a TDDDSynCrtSocket)
-  TOnIDDDSocketThreadCreate = procedure(aOwner: TObject; out Obj);
+  TOnIDDDSocketThreadCreate = procedure(aOwner: TObject; out Obj) of object;
 
   /// the settings of a TDDDThreadSocketProcess thread
   // - defines how to connect (and reconnect) to the associated TCP server
@@ -458,6 +489,8 @@ type
     fPort: integer;
     fSocketLoopPeriod: integer;
     fSocketTimeout: integer;
+    fSocketBufferBytes: integer;
+    fSocketMaxBufferBytes: integer;
     fConnectionAttemptsInterval: Integer;
     fAutoReconnectAfterSocketError: boolean;
     fMonitoringInterval: integer;
@@ -486,6 +519,16 @@ type
     /// the time out period, in milliseconds, for socket access
     // - default is 2000 ms, i.e. 2 seconds
     property SocketTimeout: integer read FSocketTimeout write FSocketTimeout;
+    /// the internal size of the input socket buffer
+    // - default is 32768, i.e. 32 KB
+    property SocketBufferBytes: integer read FSocketBufferBytes write FSocketBufferBytes;
+    /// the maximum size of the thread input buffer
+    // - i.e. how many bytes are stored in fSocketInputBuffer memory, before
+    // nothing is retrieved from the socket buffer
+    // - set to avoid any "out of memory" of the currrent process, if the
+    // incoming data is not processed fast enough
+    // - default is 16777216, i.e. 16 MB
+    property SocketMaxBufferBytes: integer read FSocketMaxBufferBytes write FSocketMaxBufferBytes;
     /// the time, in seconds, between any reconnection attempt
     // - default value is 5 - i.e. five seconds
     // - if you set -1 as value, thread would end without any retrial
@@ -501,21 +544,28 @@ type
 
   /// storage class for a ServicesLog settings
   TDDDServicesLogRestSettings = class(TDDDRestSettings)
+  protected
+    fShardDBCount: Integer;
   public
     /// compute a stand-alone REST instance for interface-based services logging
-    // - by default, will create a local SQLite3 file for storage
     // - all services of aMainRestWithServices would log their calling information
     // into a dedicated table, but the methods defined in aExcludedMethodNamesCSV
+    // (which should be specified, even as '', to avoid FPC compilation error)
+    // - by default, will create a local SQLite3 file for storage, optionally
+    // via TSQLRestStorageShardDB if ShardDBCount is set
     // - the first supplied item of aLogClass array would be used for the
     // service logging; any additional item would be part of the model of the
     // returned REST instance, but may be used later on (e.g. to handle
     // DB-based asynchronous remote notifications as processed by
     // TServiceFactoryClient.SendNotificationsVia method)
-    // - if aLogClass=[], TSQLRecordServiceLog would be used as a class
+    // - if aLogClass=[], plain TSQLRecordServiceLog would be used as default
+    // - aShardRange is used for TSQLRestStorageShardDB if ShardDBCount>0
     function NewRestInstance(aRootSettings: TDDDAppSettingsAbstract;
-      aMainRestWithServices: TSQLRestServer;
-      const aLogClass: array of TSQLRecordServiceLogClass;
-      const aExcludedMethodNamesCSV: RawUTF8=''): TSQLRest; reintroduce;
+      aMainRestWithServices: TSQLRestServer; const aLogClass: array of TSQLRecordServiceLogClass;
+      const aExcludedMethodNamesCSV: RawUTF8; aShardRange: TID=50000): TSQLRest; reintroduce;
+  published
+    /// if set, will define MaxShardCount for TSQLRestStorageShardDB persistence
+    property ShardDBCount: Integer read fShardDBCount write fShardDBCount;
   end;
 
   /// parent class for storing a HTTP published service/daemon settings
@@ -534,6 +584,28 @@ type
     property ServicesLog: TDDDServicesLogRestSettings read fServicesLog;
   end;
 
+  /// stand-alone property to publish a secondary TSQLRestServer over HTTP
+  TDDDRestHttpSettings = class(TSynAutoCreateFields)
+  protected
+    fRest: TDDDRestSettings;
+    fHttp: TSQLHttpServerDefinition;
+  published
+    /// how the REST server is implemented
+    // - most probably using a TSQLRestServerDB, i.e. local SQLite3 storage
+    property Rest: TDDDRestSettings read fRest;
+    /// how the HTTP server should be defined
+    property Http: TSQLHttpServerDefinition read fHttp;
+  end;
+
+  /// stand-alone property to publish a secondary logged service over HTTP
+  TDDDRestHttpLogSettings = class(TDDDRestHttpSettings)
+  protected
+    fServicesLog: TDDDServicesLogRestSettings;
+  published
+    /// how the SOA calls would be logged into their own SQlite3 database
+    property ServicesLog: TDDDServicesLogRestSettings read fServicesLog;
+  end;
+  
   /// storage class for a remote MongoDB server direct access settings
   TDDDMongoDBRestSettings = class(TDDDRestSettings)
   public
@@ -543,7 +615,7 @@ type
     // remote MongoDB server IP is known, you may just replace '?' to use it
     // - if MongoUser and MongoPassword are set, would call TMongoClient.OpenAuth()
     procedure SetDefaults(const Root, MongoServerAddress, MongoDatabase,
-      MongoUser, MongoPassword: RawUTF8);
+      MongoUser, MongoPassword: RawUTF8; TLS: boolean=false);
   end;
 
   TDDDEmailerSettings = class(TSynPersistent)
@@ -556,7 +628,7 @@ type
     property SMTP: RawUTF8 read fSMTP write fSMTP;
     property Recipients: RawUTF8 read fRecipients write fRecipients;
   end;
-  
+
 
 implementation
 
@@ -578,13 +650,11 @@ begin
     RotateFileSizeKB := Log.RotateFileSizeKB;
     RotateFileDailyAtHour := Log.RotateFileDailyAtHour;
     if Log.RotateFileCount<=0 then
-      HighResolutionTimeStamp := true;
+      HighResolutionTimestamp := true;
     FileExistsAction := acAppend; // default rotation mode
     if Log.StackTraceViaAPI then
       StackTraceUse := stOnlyAPI;
-    {$ifdef MSWINDOWS}
-    AutoFlushTimeOut := Log.AutoFlushTimeOut;
-    {$endif}
+    // AutoFlushTimeOut not set now, since won't work with /form
     if (Log.SyslogServer<>'') and (Log.SyslogServer[1]<>'?') and
        not Assigned(EchoCustom) and (fSyslog=nil) and (Log.SyslogLevels<>[]) and
        uri.From(Log.SyslogServer,'514') then
@@ -729,6 +799,16 @@ end;
 { TDDDRestSettings }
 
 function TDDDRestSettings.NewRestInstance(aRootSettings: TDDDAppSettingsAbstract;
+  const aTables: array of TSQLRecordClass; aOptions: TDDDNewRestInstanceOptions;
+  aExternalDBOptions: TVirtualTableExternalRegisterOptions;
+  aMongoDBIdentifier: word; aMongoDBOptions: TStaticMongoDBRegisterOptions): TSQLRest;
+begin
+  include(aOptions,riOwnModel);
+  result := NewRestInstance(aRootSettings,TSQLModel.Create(aTables,fRoot),aOptions,
+    aExternalDBOptions,aMongoDBIdentifier,aMongoDBOptions);
+end;
+
+function TDDDRestSettings.NewRestInstance(aRootSettings: TDDDAppSettingsAbstract;
   aModel: TSQLModel; aOptions: TDDDNewRestInstanceOptions;
   aExternalDBOptions: TVirtualTableExternalRegisterOptions;
   aMongoDBIdentifier: word; aMongoDBOptions: TStaticMongoDBRegisterOptions): TSQLRest;
@@ -750,7 +830,7 @@ function TDDDRestSettings.NewRestInstance(aRootSettings: TDDDAppSettingsAbstract
 begin
   if aModel=nil then
     if riCreateVoidModelIfNone in aOptions then begin
-      aModel := TSQLModel.Create([],'');
+      aModel := TSQLModel.Create([],fRoot);
       include(aOptions,riOwnModel);
     end else
        raise EDDDInfraException.CreateUTF8('%.NewRestInstance(aModel=nil)',[self]);
@@ -766,7 +846,7 @@ begin
       fORM.Kind := 'TSQLRestServerDB';
       fORM.ServerName := SQLITE_MEMORY_DATABASE_NAME;
     end else
-    if riDefaultFullMemoryIfNone in aOptions then 
+    if riDefaultFullMemoryIfNone in aOptions then
       fORM.Kind := 'TSQLRestServerFullMemory' else
     if riDefaultLocalBinaryFullMemoryIfNone in aOptions then begin
       fORM.Kind := 'TSQLRestServerFullMemory';
@@ -793,15 +873,7 @@ begin
       if (WrapperTemplateFolder<>'') and DirectoryExists(WrapperTemplateFolderFixed) then
         AddToServerWrapperMethod(TSQLRestServer(result),[WrapperTemplateFolderFixed],
           WrapperSourceFolderFixed);
-      if result.InheritsFrom(TSQLRestServerDB) then
-        with TSQLRestServerDB(result).DB do begin // tune internal SQlite3 engine
-          if optSQlite3FileSafeNonExclusive in Options then
-            LockingMode := lmNormal else
-            LockingMode := lmExclusive;
-          if optSQlite3FileSafeSlowMode in Options then
-            Synchronous := smNormal else
-            Synchronous := smOff;
-        end;
+      RestServerDBSetOptions(TSQLRestServer(result), Options);
       if riCreateMissingTables in aOptions then
         TSQLRestServer(result).CreateMissingTables;
     except
@@ -821,24 +893,71 @@ begin
   end;
 end;
 
+class procedure TDDDRestSettings.RestServerDBSetOptions(DB: TSQLRestServer;
+  Options: TDDDRestSettingsOptions);
+begin
+  if (DB <> nil) and DB.InheritsFrom(TSQLRestServerDB) then
+  with TSQLRestServerDB(DB).DB do begin // tune internal SQlite3 engine
+    if optEraseDBFileAtStartup in Options then
+      DeleteFile(FileName);
+    if optSQlite3FileSafeNonExclusive in Options then
+      LockingMode := lmNormal else
+      LockingMode := lmExclusive;
+    if optSQlite3FileSafeSlowMode in Options then
+      Synchronous := smNormal else
+      Synchronous := smOff;
+    if optSQlite3File4MBCacheSize in Options then
+      CacheSize := (4 shl 20) div PageSize;
+  end;
+end;
+
+function TDDDRestSettings.NewRestServerDB(const aDBFileName: TFileName;
+  const aModelRoot: RawUTF8; const aModelTables: array of TSQLRecordClass;
+  aOptions: TDDDRestSettingsOptions; aCacheSize: cardinal): TSQLRestServerDB;
+begin
+  result := TSQLRestServerDB.CreateWithOwnModel(aModelTables, DefaultDataFolder +
+    UTF8ToString(DefaultDataFileName) + aDBFileName, false, aModelRoot, '', aCacheSize);
+  RestServerDBSetOptions(result, Options); // tune internal SQlite3 engine
+  result.CreateMissingTables;
+end;
+
+procedure TDDDRestSettings.WrapperGenerate(Rest: TSQLRestServer; Port: integer;
+  const DestFile, Template: TFileName);
+var dest: TFileName;
+    mus: RawUTF8;
+begin
+  if (self = nil) or (Rest = nil) then
+    exit;
+  if DestFile = '' then
+    dest := ExeVersion.ProgramFilePath+'mORMotClient.asc' else
+    dest := DestFile;
+  mus := StringFromFile(WrapperTemplateFolderFixed(true)+Template);
+  FileFromString(WrapperFromModel(Rest,mus,'',Port),dest);
+end;
+
 function TDDDRestSettings.WrapperSourceFolderFixed: TFileName;
 begin
   if fWrapperSourceFolders='' then
     result := '' else begin
     if fWrapperSourceFolderFixed='' then
-      fWrapperSourceFolderFixed := StringReplace(fWrapperSourceFolders,'/','\',[rfReplaceAll]);
+      fWrapperSourceFolderFixed := IncludeTrailingPathDelimiter(StringReplace(
+        fWrapperSourceFolders,'/',PathDelim,[rfReplaceAll]));
     result := fWrapperSourceFolders;
   end;
 end;
 
-function TDDDRestSettings.WrapperTemplateFolderFixed: TFileName;
+function TDDDRestSettings.WrapperTemplateFolderFixed(ReturnLocalIfNoneSet: boolean): TFileName;
 begin
   if fWrapperTemplateFolder='' then
-    result := '' else begin
-    if fWrapperTemplateFolderFixed='' then
-      fWrapperTemplateFolderFixed := StringReplace(fWrapperTemplateFolder,'/','\',[rfReplaceAll]);
-    result := fWrapperTemplateFolder;
-  end;
+    if ReturnLocalIfNoneSet then
+      result := ExeVersion.ProgramFilePath
+    else
+      result := '' else begin
+      if fWrapperTemplateFolderFixed='' then
+        fWrapperTemplateFolderFixed := StringReplace(
+          fWrapperTemplateFolder,'/',PathDelim,[rfReplaceAll]);
+      result := fWrapperTemplateFolder;
+    end;
 end;
 
 
@@ -884,6 +1003,8 @@ begin
   fSocketLoopPeriod := 100;
   fConnectionAttemptsInterval := 5;
   fMonitoringInterval := 120*1000; // log monitoring information every 2 minutes
+  fSocketBufferBytes := 32768; // 32KB
+  fSocketMaxBufferBytes := 16777216; // 16MB
 end;
 
 function TDDDSocketThreadSettings.GetHostPort: RawUTF8;
@@ -909,8 +1030,10 @@ end;
 function TDDDServicesLogRestSettings.NewRestInstance(
   aRootSettings: TDDDAppSettingsAbstract; aMainRestWithServices: TSQLRestServer;
   const aLogClass: array of TSQLRecordServiceLogClass;
-  const aExcludedMethodNamesCSV: RawUTF8): TSQLRest;
+  const aExcludedMethodNamesCSV: RawUTF8; aShardRange: TID): TSQLRest;
 var classes: TSQLRecordClassDynArray;
+    server: TSQLRestServer;
+    fn: TFileName;
     i: integer;
 begin
   if length(aLogClass)=0 then begin
@@ -921,14 +1044,26 @@ begin
     for i := 0 to high(aLogClass) do
       classes[i] := aLogClass[i];
   end;
-  result := inherited NewRestInstance(aRootSettings,TSQLModel.Create(classes),
-    [riOwnModel,riDefaultLocalSQlite3IfNone,riCreateMissingTables]);
+  if (fShardDBCount > 0) and (aShardRange > 100) and (length(classes)=1) then
+    {$WARNINGS OFF} // methods are pure abstract, but fine with a single class
+    result := TSQLRestServer.CreateWithOwnModel(classes,false,fRoot) else
+    {$WARNINGS ON}
+    result := inherited NewRestInstance(aRootSettings,TSQLModel.Create(classes),
+      [riOwnModel,riDefaultLocalSQlite3IfNone,riCreateMissingTables]);
   if result=nil then
     exit;
-  if result.InheritsFrom(TSQLRestServerDB) then
-    TSQLRestServerDB(result).DB.UseCache := false;
+  if (fShardDBCount > 0) and (aShardRange > 100) then begin
+    server := result as TSQLRestServer;
+    fn := IncludeTrailingPathDelimiter(fDefaultDataFolder)+TFileName(fDefaultDataFileName);
+    if not server.StaticDataAdd(TSQLRestStorageShardDB.Create(
+       classes[0], server, aShardRange, [], fn, fShardDBCount)) then
+      raise EDDDInfraException.CreateUTF8('%.NewRestInstance(%) StaticDataAdd(%)=false',
+        [self,fRoot,classes[0]]);
+  end else
+    if result.InheritsFrom(TSQLRestServerDB) then
+      TSQLRestServerDB(result).DB.UseCache := false;
   // set the first supplied class type to log services
-  if aMainRestWithServices <> nil then
+  if (aMainRestWithServices <> nil) and classes[0].InheritsFrom(TSQLRecordServiceLog) then
     (aMainRestWithServices.ServiceContainer as TServiceContainerServer).
       SetServiceLog(result,TSQLRecordServiceLogClass(classes[0]),aExcludedMethodNamesCSV);
 end;
@@ -947,20 +1082,13 @@ end;
 
 function TDDDAppSettingsStorageAbstract.SetOwner(
   aOwner: TDDDAppSettingsAbstract): boolean;
-var tmp: TSynTempBuffer;
 begin
   if self=nil then
-    exit;
-  fOwner := aOwner;
-  if fInitialJsonContent='' then
-    exit;
-  tmp.Init(fInitialJsonContent);
-  RemoveCommentsFromJSON(tmp.buf);
-  JSONToObject(fOwner,tmp.buf,result,nil,
-    [j2oIgnoreUnknownProperty,j2oIgnoreUnknownEnum,j2oHandleCustomVariants]);
-  if not result then
-    fInitialJsonContent := '';
-  tmp.Done;
+    result := false
+  else begin
+    fOwner := aOwner;
+    result := JSONSettingsToObject(fInitialJsonContent, fOwner);
+  end;
 end;
 
 procedure TDDDAppSettingsStorageAbstract.Store(const aJSON: RawUTF8);
@@ -1001,12 +1129,14 @@ end;
 { TDDDMongoDBRestSettings }
 
 procedure TDDDMongoDBRestSettings.SetDefaults(const Root, MongoServerAddress,
-  MongoDatabase, MongoUser, MongoPassword: RawUTF8);
+  MongoDatabase, MongoUser, MongoPassword: RawUTF8; TLS: boolean);
 begin
   if fORM.Kind<>'' then
     exit;
   fRoot := Root;
-  fORM.Kind := 'MongoDB';
+  if TLS then
+    fORM.Kind := 'MongoDBS' else
+    fORM.Kind := 'MongoDB';
   fORM.ServerName := MongoServerAddress;
   fORM.DatabaseName := MongoDatabase;
   fORM.User := MongoUser;

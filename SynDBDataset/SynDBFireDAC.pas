@@ -6,7 +6,7 @@ unit SynDBFireDAC;
 {
   This file is part of Synopse framework.
 
-  Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+  Synopse framework. Copyright (C) 2018 Arnaud Bouchez
   Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBFireDAC;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -257,7 +257,7 @@ begin
     [FIREDAC_PROVIDER[fDBMS],fUserId,fPassWord,fDatabaseName]));
   opt := pointer(options);
   while opt<>nil do begin
-    namevalue := GetNextItem(opt,';');
+    GetNextItem(opt,';',namevalue);
     if namevalue<>'' then
       fFireDACOptions.Add(UTF8ToString(namevalue));
   end;
@@ -431,8 +431,8 @@ begin
   if fDatabase=nil then
     raise ESQLDBFireDAC.CreateUTF8('%.Connect(%): Database=nil',
       [self,fProperties.ServerName]);
-  Log := SynDBLog.Enter(Self,pointer(FormatUTF8('Connect to DriverID=% Database=%',
-    [FIREDAC_PROVIDER[fProperties.DBMS],fProperties.DatabaseName])),true);
+  Log := SynDBLog.Enter('Connect to DriverID=% Database=%',
+    [FIREDAC_PROVIDER[fProperties.DBMS],fProperties.DatabaseName],self);
   try
     fDatabase.Open;
     inherited Connect; // notify any re-connection 

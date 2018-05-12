@@ -6,7 +6,7 @@ unit mORMotReport;
 (*
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -27,7 +27,7 @@ unit mORMotReport;
 
   Portions created by the Initial Developer are Copyright (C) 2003
   the Initial Developer. All Rights Reserved.
-  Portions created by Arnaud Bouchez for Synopse are Copyright (C) 2017
+  Portions created by Arnaud Bouchez for Synopse are Copyright (C) 2018
   Arnaud Bouchez. All Rights Reserved.
 
   Contributor(s):
@@ -111,7 +111,7 @@ unit mORMotReport;
   - full Unicode text process (even before Delphi 2009)
   - speed up and various bug fixes to work with Delphi 5 up to XE3
 
-  Modifications © 2009-2017 Arnaud Bouchez
+  Modifications © 2009-2018 Arnaud Bouchez
 
   Version 1.4 - February 8, 2010
   - whole Synopse SQLite3 database framework released under the GNU Lesser
@@ -1660,8 +1660,8 @@ begin
       case cy of
         148: if (cx = 210) then result := 'A5 (210 x 148mm)';
         210: if (cx = 297) then result := 'A4 (297 x 210mm)';
-        216: if (cx = 279) then result := 'Letter (11 x 8½")'
-             else if (cx = 356) then result := 'Legal (14 x 8½")';
+        216: if (cx = 279) then result := 'Letter (11 x 8.5")'
+             else if (cx = 356) then result := 'Legal (14 x 8.5")';
         297: if (cx = 420) then result := 'A3 (420 x 297mm)';
       end;
     end else
@@ -1670,8 +1670,8 @@ begin
       case cx of
         148: if (cy = 210) then result := 'A5 (148 x 210mm)';
         210: if (cy = 297) then result := 'A4 (210 x 297mm)';
-        216: if (cy = 279) then result := 'Letter (8½ x 11")'
-             else if (cy = 356) then result := 'Legal (8½ x 14")';
+        216: if (cy = 279) then result := 'Letter (8.5 x 11")'
+             else if (cy = 356) then result := 'Legal (8.5 x 14")';
         297: if (cy = 420) then result := 'A3 (297 x 420mm)';
       end;
     end;
@@ -1785,7 +1785,7 @@ begin
   yLineDelta := ToPoint.Y - FromPoint.Y;
 
   xLineUnitDelta := xLineDelta / SQRT( SQR(xLineDelta) + SQR(yLineDelta) );
-  yLineUnitDelta := yLineDelta / SQRt( SQR(xLineDelta) + SQR(yLineDelta) );
+  yLineUnitDelta := yLineDelta / SQRT( SQR(xLineDelta) + SQR(yLineDelta) );
 
   // (xBase,yBase) is where arrow line is perpendicular to base of triangle
   xBase := ToPoint.X - ROUND(HeadSize * xLineUnitDelta);
@@ -1794,7 +1794,7 @@ begin
   xNormalDelta :=  yLineDelta;
   yNormalDelta := -xLineDelta;
   xNormalUnitDelta := xNormalDelta / SQRT( SQR(xNormalDelta) + SQR(yNormalDelta) );
-  yNormalUnitDelta := yNormalDelta / SQRt( SQR(xNormalDelta) + SQR(yNormalDelta) );
+  yNormalUnitDelta := yNormalDelta / SQRT( SQR(xNormalDelta) + SQR(yNormalDelta) );
 
   SavedBrushColor := Canvas.Brush.Color;
   if SolidArrowHead then

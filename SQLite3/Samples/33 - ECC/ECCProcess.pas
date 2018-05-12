@@ -27,7 +27,8 @@ function ECCCommandRekey(const AuthPrivKey: TFileName;
 /// end-user command to sign a file using a private key file
 // - as used in the ECC.dpr command-line sample project
 function ECCCommandSignFile(const FileToSign, AuthPrivKey: TFileName;
-  const AuthPassword: RawUTF8; AuthPasswordRounds: integer): TFileName;
+  const AuthPassword: RawUTF8; AuthPasswordRounds: integer;
+  const MetaNameValuePairs: array of const): TFileName;
 
 /// end-user command to verify a file signature
 // - as used in the ECC.dpr command-line sample project
@@ -164,7 +165,7 @@ begin
       CreateCheatFile(new,SavePassword,SavePassordRounds);
       // save public key as .public JSON file
       result := ChangeFileExt(new.SaveToSecureFileName,ECCCERTIFICATEPUBLIC_FILEEXT);
-      JSONReformatToFile(VariantSaveJSON(new.ToVariant),result);
+      new.ToFile(result);
     finally
       new.Free;
     end;
@@ -189,12 +190,13 @@ begin
 end;
 
 function ECCCommandSignFile(const FileToSign, AuthPrivKey: TFileName;
-  const AuthPassword: RawUTF8; AuthPasswordRounds: integer): TFileName;
+  const AuthPassword: RawUTF8; AuthPasswordRounds: integer;
+  const MetaNameValuePairs: array of const): TFileName;
 var auth: TECCCertificateSecret;
 begin
   auth := TECCCertificateSecret.CreateFromSecureFile(AuthPrivKey,AuthPassword,AuthPasswordRounds);
   try
-    result := auth.SignFile(FileToSign,[]);
+    result := auth.SignFile(FileToSign,MetaNameValuePairs);
   finally
     auth.Free;
   end;
@@ -460,8 +462,6 @@ begin
     raise EECCException.Create('ECCCommand(nil)');
   try
   try
-    if not ecc_available then
-      raise EECCException.Create('ECC is not implemented on this platform');
     case cmd of
     ecNew: begin
       repeat
@@ -547,7 +547,7 @@ begin
         'Enter the PassPhrase of this .private file.');
       authrounds := sw.AsInt('Rounds',DEFAULT_ECCROUNDS,
         'Enter the PassPhrase iteration rounds of this .private file.');
-      newfile := EccCommandSignFile(origfile,auth,authpass,authrounds);
+      newfile := EccCommandSignFile(origfile,auth,authpass,authrounds,[]);
     end;
     ecVerify: begin
       repeat

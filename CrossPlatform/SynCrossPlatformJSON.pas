@@ -6,7 +6,7 @@ unit SynCrossPlatformJSON;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynCrossPlatformJSON;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -64,7 +64,8 @@ uses
   Classes,
 {$ifdef NEXTGEN}
   System.Generics.Collections,
-{$else}
+{$endif}
+{$ifndef NEXTGEN}
   Contnrs,
 {$endif}
   Variants,
@@ -422,15 +423,14 @@ procedure GetPropsInfo(TypeInfo: TRTTITypeInfo; var PropNames: TStringDynArray;
   var PropRTTI: TRTTIPropInfoDynArray);
 
 /// retrieve the value of a published property as variant
-function GetInstanceProp(Instance: TObject; PropInfo: TRTTIPropInfo): variant;
+function GetInstanceProp(Instance: TObject; PropInfo: TRTTIPropInfo; StoreClassName: boolean = False): variant;
 
 /// set the value of a published property from a variant
 procedure SetInstanceProp(Instance: TObject; PropInfo: TRTTIPropInfo;
   const Value: variant);
 
 /// retrieve all the published methods of a given class, using RTTI
-procedure GetPublishedMethods(Instance: TObject;
-  out Methods: TPublishedMethodDynArray);
+procedure GetPublishedMethods(Instance: TObject; out Methods: TPublishedMethodDynArray);
 
 /// convert an "array of const" parameter value into its string representation
 function VarRecToValue(const V: TVarRec; out wasString: boolean): string;
@@ -849,6 +849,9 @@ begin
   vtBoolean:    if VBoolean then result := '1' else result := '0';
   vtInteger:    result := IntToStr(VInteger);
   vtInt64:      result := IntToStr(VInt64^);
+  {$ifdef FPC}
+  vtQWord:      result := IntToStr(VQWord^);
+  {$endif}
   vtCurrency:   DoubleToJSON(VCurrency^,result);
   vtExtended:   DoubleToJSON(VExtended^,result);
   vtObject:     result := ObjectToJSON(VObject);
@@ -1338,7 +1341,7 @@ begin
     (NativeUInt(PropInfo^.GetProc){$ifndef FPC} and $00FFFFFF{$endif}));
 end;
 
-function GetInstanceProp(Instance: TObject; PropInfo: TRTTIPropInfo): variant;
+function GetInstanceProp(Instance: TObject; PropInfo: TRTTIPropInfo; StoreClassName: boolean): variant;
 var obj: TObject;
 begin
   VarClear(result);
@@ -1372,7 +1375,7 @@ begin
     obj := TObject(NativeInt(GetOrdProp(Instance,PropInfo)));
     if obj=nil then
       result := null else
-      TJSONVariantData(result).Init(ObjectToJSON(obj));
+      TJSONVariantData(result).Init(ObjectToJSON(obj, StoreClassName));
   end;
   tkDynArray:
     if IsBlob(PropInfo) then
@@ -1573,7 +1576,7 @@ begin
       for i := 0 to PropCount-1 do begin
         PropInfo := PropList^[i];
         result := result+StringToJSON(ShortStringToString(@PropInfo^.Name))+':'+
-          ValueToJSON(GetInstanceProp(Instance,PropInfo))+',';
+          ValueToJSON(GetInstanceProp(Instance,PropInfo,StoreClassName))+',';
       end;
       result[length(result)] := '}';
     finally
@@ -1582,20 +1585,19 @@ begin
     result := 'null';
 end;
 
-procedure GetPublishedMethods(Instance: TObject;
-  out Methods: TPublishedMethodDynArray);
+procedure GetPublishedMethods(Instance: TObject; out Methods: TPublishedMethodDynArray);
 var n: integer;
   procedure AddParentsFirst(C: TClass);
   type
     TMethodInfo = packed record
-    {$ifdef FPC}
+      {$ifdef FPC}
       Name: PShortString;
       Addr: Pointer;
-    {$else}
+      {$else}
       Len: Word;
       Addr: Pointer;
       Name: Byte;
-    {$endif}
+      {$endif}
     end;
   var M: ^TMethodInfo;
       Method: TMethod;

@@ -1,4 +1,4 @@
-/// SyNode - server-side JavaScript execution using the SpiderMonkey 45
+/// SyNode - server-side JavaScript execution using the SpiderMonkey 45/52
 // library with nodeJS modules support
 // - this unit is a part of the freeware Synopse framework,
 // licensed under a MPL/GPL/LGPL tri-license; version 1.18
@@ -6,10 +6,10 @@ unit SyNode;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
-    SyNode for mORMot Copyright (C) 2017 Pavel Mashlyakovsky & Vadim Orel
+    SyNode for mORMot Copyright (C) 2018 Pavel Mashlyakovsky & Vadim Orel
       pavel.mash at gmail.com
 
     Some ideas taken from
@@ -30,7 +30,7 @@ unit SyNode;
 
   The Initial Developer of the Original Code is
   Pavel Mashlyakovsky.
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -38,6 +38,8 @@ unit SyNode;
   - Vadim Orel
   - Pavel Mashlyakovsky
   - win2014
+  - Geogre
+  - ssoftpro
 
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -53,14 +55,6 @@ unit SyNode;
 
   ***** END LICENSE BLOCK *****
 
-
-  ---------------------------------------------------------------------------
-   Download the mozjs-45 library at
-     x32: https://unitybase.info/downloads/mozjs-45.zip
-     x64: https://unitybase.info/downloads/mozjs-45-x64.zip
-  ---------------------------------------------------------------------------
-
-
   Version 1.18
   - initial release. Use SpiderMonkey 45
   - x64 support added
@@ -70,6 +64,11 @@ unit SyNode;
   - improved compartibility with nodeJS utils
   - add a `process.version`
   - implement a setTimeout/setInverval/setImmediate etc.
+  - SpiderMonkey 52 (x32 & x64) support ( SM52 condition should be defined )
+  - VSCode debugging support via [vscode-firefox-debug](https://github.com/hbenl/vscode-firefox-debug) adapter
+    Thanks to George for patch
+  - JS `process` now instance of EventEmitter
+  - JS Engine will emit `exit` event on destroy as in node
 
 }
 
@@ -79,7 +78,12 @@ unit SyNode;
 interface
 
 uses
-  {$ifdef MSWINDOWS} Windows, ShLwApi,{$endif}
+  {$ifndef FPC}
+  Windows,
+  ShLwApi, // for older Delphi versions download this file from JEDI library
+  {$else}
+  LazFileUtils, dynlibs,
+  {$endif}
   {$ifdef ISDELPHIXE2}System.SysUtils,{$else}SysUtils,{$endif}
   Classes,
   {$ifndef LVCL}
@@ -92,12 +96,9 @@ uses
   SynCommons,
   SynLog,
   SpiderMonkey,
-  NSPRApi,
+  NSPRAPI,
   SyNodeProto,
   mORMot,
-  {$ifdef BRANCH_WIN_WEB_SOCKET}
-  SynCrtCommons,
-  {$endif}
   SynCrtSock,
   SyNodeBinding_worker;
 
@@ -129,7 +130,9 @@ type
     fPrivateDataForDebugger: Pointer;
     fNameForDebug: RawUTF8;
     fDoInteruptInOwnThread: TThreadMethod;
+    {$IFNDEF SM52}
     fRt: PJSRuntime;
+    {$ENDIF}
     fcomp: PJSCompartment;
     fStringFinalizer: JSStringFinalizer;
 
@@ -139,8 +142,8 @@ type
     fGlobalObjectDbg: PJSRootedObject;
 
     fEngineContentVersion: Cardinal;
-    fThreadID: DWORD;
-    fLastErrorMsg: SynUnicode;
+    fThreadID: TThreadID;
+    fLastErrorMsg: string;
     fLastErrorNum: integer;
     fLastErrorFileName: RawUTF8;
     fLastErrorLine: integer;
@@ -149,9 +152,14 @@ type
     fThreadData: pointer;
     fDllModulesUnInitProcList: TList;
     fNeverExpire: boolean;
+    fWebAppRootDir: RawUTF8;
     /// called from SpiderMonkey callback. Do not raise exception here
     // instead use CheckJSError metod after JSAPI compile/evaluate call
+{$IFDEF SM52}
+    procedure DoProcessJSError(report: PJSErrorReport); virtual;
+{$ELSE}
     procedure DoProcessJSError(errMsg: PCChar; report: PJSErrorReport); virtual;
+{$ENDIF}
     /// called from SpiderMonkey callback. It used for interrupt execution of script
     //  when it executes too long
     function DoProcessOperationCallback: Boolean; virtual;
@@ -219,7 +227,10 @@ type
     // - JavaScript equivalent to
     // ! eval(script)
     procedure Evaluate(const script: SynUnicode; const scriptName: RawUTF8;
-      lineNo: Cardinal; out result: jsval);
+      lineNo: Cardinal; out result: jsval); overload;
+
+    procedure Evaluate(const script: SynUnicode; const scriptName: RawUTF8;
+      lineNo: Cardinal); overload;
 
     /// evaluate a JavaScript script as Module
     // - if exception raised in script - raise Delphi ESMException
@@ -239,8 +250,10 @@ type
     property GlobalObjectDbg: PJSRootedObject read FGlobalObjectDbg;
     /// access to the associated execution context
     property cx: PJSContext read fCx;
+    {$IFNDEF SM52}
     /// access to the associated execution runtime
     property rt: PJSRuntime read frt;
+    {$ENDIF}
     /// access to the associated execution compartment
     property comp: PJSCompartment read fcomp;
 
@@ -253,7 +266,7 @@ type
     property EngineContentVersion: Cardinal read FEngineContentVersion;
 
     /// last error message triggered during JavaScript execution
-    property LastErrorMsg: SynUnicode read FLastErrorMsg;
+    property LastErrorMsg: string read FLastErrorMsg;
     /// last error source code line number triggered during JavaScript execution
     property LastErrorLine: integer read FLastErrorLine;
     /// last error file name triggered during JavaScript execution
@@ -299,6 +312,8 @@ type
     property PrivateDataForDebugger: Pointer read FPrivateDataForDebugger write SetPrivateDataForDebugger;
     /// Name of this engine. Will be shown in debugger for indentify this engine
     property nameForDebug: RawUTF8 read fnameForDebug;
+    /// root path for current web app engine context
+    property webAppRootDir: RawUTF8 read fWebAppRootDir;
     /// Handler hor debugger. Called from debugger thread when debugger need
     // call rt.InterruptCallback(cx) in engine''s thread
     // this method must wake up the engine's thread and thread must
@@ -310,7 +325,7 @@ type
   /// prototype of SpideMonkey notification callback method
   TEngineEvent = procedure(const Engine: TSMEngine) of object;
 
-  /// event of getting engine name
+  /// event of getting engine name or web app root path
   TEngineNameEvent = function(const Engine: TSMEngine): RawUTF8 of object;
 
   /// event for loading dll module
@@ -347,6 +362,7 @@ type
     FOnNewEngine: TEngineEvent;
     FOnDebuggerInit: TEngineEvent;
     FOnGetName: TEngineNameEvent;
+    FOnGetWebAppRootPath: TEngineNameEvent;
     FOnDebuggerConnected: TEngineEvent;
     FOnDllModuleLoaded: TDllModuleEvent;
     {$ifdef ISDELPHIXE2}
@@ -366,16 +382,14 @@ type
     procedure SetMaxPerEngineMemory(AMaxMem: Cardinal);
     procedure SetMaxNurseryBytes(AMaxNurseryBytes: Cardinal);
   protected
+    grandParent: TSMEngine;
     /// Release a javaScript engine for specified thread
-    procedure ReleaseEngineForThread(aThreadID: DWORD);
+    procedure ReleaseEngineForThread(aThreadID: TThreadID);
     /// returns -1 if none was defined yet
     // - this method is not protected via the global FEngineCS mutex/lock
-    function ThreadEngineIndex(ThreadID: DWORD): Integer;
+    function ThreadEngineIndex(ThreadID: TThreadID): Integer;
     /// returns nil if none was defined yet
     function CurrentThreadEngine: TSMEngine;
-    /// create a new SpiderMonkey Engine
-    // - used by ThreadSafeEngine method to instantiate a new per-thread Engine
-    function CreateNewEngine(pThreadData: pointer): TSMEngine; virtual;
     /// called when a new Engine is created
     // - this default implementation will run the OnNewEngine callback (if any)
     procedure DoOnNewEngine(const Engine: TSMEngine); virtual;
@@ -407,7 +421,7 @@ type
     // overriden method
     procedure ReleaseCurrentThreadEngine;
     /// returns nil if none was defined yet
-    function EngineForThread(ThreadID: DWORD): TSMEngine;
+    function EngineForThread(ThreadID: TTHreadID): TSMEngine;
     /// internal version of the script files
     // - used in TSMEngine.ThreadSafeEngine to determine if context is up to
     // date, in order to trigger on-the-fly reload of scripts without the need
@@ -467,6 +481,10 @@ type
     // event trigered before OnDebuggerInit and OnNewEngine events
     // Result og this method is Engine's name for debug
     property OnGetName: TEngineNameEvent read FOnGetName write FOnGetName;
+    /// event triggered every time a new Engine is created
+    // event trigered before OnDebuggerInit and OnNewEngine events
+    // Result og this method is Engine's web app root path
+    property OnGetWebAppRootPath: TEngineNameEvent read FOnGetWebAppRootPath write FOnGetWebAppRootPath;
 
     /// event triggered every time a internal debugger process connected to Engine
     // - event trigered in debugger's compartment
@@ -496,7 +514,7 @@ var
   // may better use a common TSynLog class for the whole application or module
   SynSMLog: TSynLogClass=TSynLog;
 
-  LONG_SCRIPT_EXECUTION: SynUnicode = 'Script runs for too long. Terminating';
+  LONG_SCRIPT_EXECUTION: string = 'Script runs for too long. Terminating';
 
   /// check is AFileName is relative path, and if true - transform it to absolute from ABaseDir
   //  if ACheckResultInsideBase = true the perform check of result path is under ABaseDir. If not - return '';
@@ -506,9 +524,12 @@ var
 implementation
 
 uses
-  Math,
+  {$IFNDEF MSWINDOWS}
+  Errors, SynFPCLinux,
+  {$ENDIF}
   SyNodeRemoteDebugger,
   SyNodeBinding_fs {used by other core modules},
+  SyNodeBinding_const,
   SyNodeBinding_buffer,
   SyNodeBinding_util,
   SyNodeBinding_uv;
@@ -526,10 +547,17 @@ var
 
 /// handle errors from JavaScript. Just call DoProcessJSError of corresponding TSMEngine
 // to set TSMEngine error properties
+{$IFDEF SM52}
+procedure WarningReporter(cx: PJSContext; report: PJSErrorReport); cdecl;
+begin
+  TSMEngine(cx.PrivateData).DoProcessJSError(report)
+end;
+{$ELSE}
 procedure ErrorReporter(cx: PJSContext; pErrMsg: PCChar; report: PJSErrorReport); cdecl;
 begin
   TSMEngine(cx.PrivateData).DoProcessJSError(pErrMsg, report)
 end;
+{$ENDIF}
 
 function OperationCallback(cx: PJSContext): Boolean; cdecl;
 begin
@@ -596,22 +624,60 @@ constructor TSMEngine.Create(aManager: TSMEngineManager);
 const
   gMaxStackSize = 128 * sizeof(size_t) * 1024;
 var
+{$IFDEF SM52}
+  cOpts: PJSContextOptions;
+{$ELSE}
   rOpts: PJSRuntimeOptions;
+{$ENDIF}
+  fpu: IUnknown;
 begin
-  TSynFPUException.ForLibraryCode;
+  fpu := TSynFPUException.ForLibraryCode;
   if aManager = nil then
     raise ESMException.Create('No manager provided');
   FCreatedAtTick := GetTickCount64;
-  TSynFPUException.ForLibraryCode;
   FManager := aManager;
   FEngineContentVersion := FManager.ContentVersion;
-
+{$IFDEF SM52}
+// TODO - solve problem of destroying parent engine before slave and uncomment a code below
+// this will save up to 20% of RAM - some internal structures of SM Engines will be reused 
+// between threads
+//  if aManager.grandParent <> nil then
+//    fCx := PJSContext(nil).CreateNew(FManager.MaxPerEngineMemory, $01000000, aManager.grandParent.cx)
+//  else
+    fCx := PJSContext(nil).CreateNew(FManager.MaxPerEngineMemory, $01000000, nil);
+  if fCx = nil then
+    raise ESMException.Create('Create context: out of memory');
+{$IFNDEF CPUX64} // This check does not always work correctly under 64-bit configurations. Need more investigation to understand the problem
+  fCx.SetNativeStackQuota(gMaxStackSize);
+{$ENDIF}
+  fCx.GCParameter[JSGC_MAX_BYTES] := FManager.MaxPerEngineMemory;
+// MPV as Mozilla recommend in https://bugzilla.mozilla.org/show_bug.cgi?id=950044
+//TODO - USE JS_SetGCParametersBasedOnAvailableMemory for SM32 and override JSGC_MAX_MALLOC_BYTES
+  if (FManager.MaxPerEngineMemory >= 512 * 1024 * 1024) then begin
+    fCx.GCParameter[JSGC_MAX_MALLOC_BYTES] :=  96 * 1024 * 1024;
+    fCx.GCParameter[JSGC_SLICE_TIME_BUDGET] :=  30;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_TIME_LIMIT] := 1000;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_HIGH_LIMIT] := 500;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_LOW_LIMIT] := 100;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_HEAP_GROWTH_MAX] :=  300;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_HEAP_GROWTH_MIN] :=  150;
+    fCx.GCParameter[JSGC_LOW_FREQUENCY_HEAP_GROWTH] := 150;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_TIME_LIMIT] := 1500;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_TIME_LIMIT] := 1500;
+    fCx.GCParameter[JSGC_HIGH_FREQUENCY_TIME_LIMIT] := 1500;
+    fCx.GCParameter[JSGC_ALLOCATION_THRESHOLD] := 30;
+//    fCx.GCParameter[JSGC_DECOMMIT_THRESHOLD] := 32;
+//    fCx.GCParameter[JSGC_MODE] := uint32(JSGC_MODE_COMPARTMENT);
+    fCx.GCParameter[JSGC_MODE] := uint32(JSGC_MODE_INCREMENTAL);
+  end else begin
+    fCx.GCParameter[JSGC_MAX_MALLOC_BYTES] := 6 * 1024 * 1024; //MPV in PREV realisation - FManager.MaxPerEngineMemory div 2; we got a memory overuse
+    fCx.GCParameter[JSGC_MODE] := uint32(JSGC_MODE_INCREMENTAL);
+  end;
+{$ELSE}
   frt := PJSRuntime(nil).New(FManager.MaxPerEngineMemory, $01000000, nil);
-
   if frt = nil then
     raise ESMException.Create('Create runtime: out of memory');
   fRt.SetNativeStackQuota(gMaxStackSize);
-
   fRt.GCParameter[JSGC_MAX_BYTES] := FManager.MaxPerEngineMemory;
 // MPV as Mozilla recommend in https://bugzilla.mozilla.org/show_bug.cgi?id=950044
 //TODO - USE JS_SetGCParametersBasedOnAvailableMemory for SM32 and override JSGC_MAX_MALLOC_BYTES
@@ -639,16 +705,31 @@ begin
   if fCx = nil then
     raise ESMException.Create('JSContext create');
 
+{$ENDIF}
+
+{$IFDEF SM52}
+  cOpts := cx.Options;
+  cOpts.Baseline := True;
+  cOpts.Ion := True;
+  cOpts.AsmJS := True;
+{$ELSE}
   // You must set jsoBaseLine,jsoTypeInference,jsoIon for the enabling ION
   // ION is disabled without these options
   rOpts := rt.Options;
   rOpts.Baseline := True;
   rOpts.Ion := True;
   rOpts.AsmJS := True;
+{$ENDIF}
 
   fStringFinalizer.finalize := ExternalStringFinalizer;
   cx.PrivateData := self;
+{$IFDEF SM52}
+  // not working for errors
+  // TODO: implement log warnings if needed
+  // fCx.WarningReporter := WarningReporter;
+{$ELSE}
   fRt.ErrorReporter := ErrorReporter;
+{$ENDIF}
 
   FGlobalObject := cx.NewRootedObject(cx.NewGlobalObject(@jsglobal_class));
   if FGlobalObject.ptr = nil then
@@ -658,6 +739,8 @@ begin
     raise ESMException.Create('InitStandardClasses failure');
   if not cx.InitCTypesClass(FGlobalObject.ptr) then
     raise ESMException.Create('InitCTypesClass failure');
+//  if not cx.InitReflectParse(FGlobalObject.ptr) then
+//    raise ESMException.Create('InitReflectParse failure');
   if not cx.InitModuleClasses(FGlobalObject.ptr) then
     raise ESMException.Create('InitModuleClasses failure');
 
@@ -667,8 +750,12 @@ begin
   fTimeoutValue := -1;
   if not InitWatchdog then
     raise ESMException.Create('InitWatchDog failure');
-  fRt.InterruptCallback := OperationCallback;
 
+{$IFDEF SM52}
+  fcx.AddInterruptCallback(OperationCallback);
+{$ELSE}
+  fRt.InterruptCallback := OperationCallback;
+{$ENDIF}
   FDllModulesUnInitProcList := TList.Create;
   DefineProcessBinding;
   DefineNodeProcess;
@@ -701,8 +788,14 @@ var process: PJSRootedObject;
     env: PJSRootedObject;
     FStartupPath: TFileName;
     L: PtrInt;
+    {$IFDEF FPC}
+    I, Cnt: Integer;
+    EnvStr: AnsiString;
+    Parts: array of AnsiString;
+    {$ELSE}
     EnvBlock, P, pEq: PChar;
     strName, strVal: SynUnicode;
+    {$ENDIF}
 begin
   process := cx.NewRootedObject(FGlobalObject.ptr.GetPropValue(cx, 'process').asObject);
   env := cx.NewRootedObject(cx.NewObject(nil));
@@ -713,13 +806,23 @@ begin
     process.ptr.defineProperty(cx, 'execPath', cx.NewJSString(ExeVersion.ProgramFileName).ToJSVal,
       JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY);
 
-    FStartupPath := GetCurrentDir + '\';
+    FStartupPath := GetCurrentDir + {$IFDEF FPC}DirectorySeparator{$ELSE}'\'{$ENDIF};
     if FStartupPath = '' then
       FStartupPath := ExeVersion.ProgramFilePath;
 
     process.ptr.defineProperty(cx, 'startupPath', cx.NewJSString(StringToSynUnicode(FStartupPath)).ToJSVal,
       JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY);
-
+    {$IFDEF FPC}
+    Cnt := GetEnvironmentVariableCount;
+    for I := 1 to Cnt do begin
+      EnvStr := GetEnvironmentString(I);
+      Parts := EnvStr.Split('=', TStringSplitOptions.ExcludeEmpty);
+      if (Length(Parts) = 2) and (Trim(Parts[0]) <> '') then begin
+        env.ptr.DefineUCProperty(cx, StringToSynUnicode(Trim(Parts[0])), cx.NewJSString(Trim(Parts[1])).ToJSVal,
+          JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY, nil, nil);
+      end
+    end;
+    {$ELSE}
     EnvBlock := GetEnvironmentStrings;
     try
       P := EnvBlock;
@@ -743,9 +846,9 @@ begin
     finally
       FreeEnvironmentStrings(EnvBlock);
     end;
+    {$ENDIF}
     process.ptr.defineProperty(cx, 'env', env.ptr.ToJSValue,
       JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY);
-
     {$IFDEF MSWINDOWS}
     process.ptr.defineProperty(cx, 'platform', cx.NewJSString('win32').ToJSVal);
     {$ELSE}
@@ -786,7 +889,29 @@ end;
 destructor TSMEngine.Destroy;
 var
   unInitProc: TDllModuleUnInitProc;
+  process: PJSRootedObject;
+  procExitCodeVal: jsval;
 begin
+  try
+    process := cx.NewRootedObject(GlobalObject.ptr.GetPropValue(cx,'process').asObject);
+    try
+      process.ptr.SetProperty(cx, '_exiting', SimpleVariantToJSval(cx, true));
+      if process.ptr.HasProperty(cx, 'emit') then
+        CallObjectFunction(process, 'emit', [cx.NewJSString('exit').ToJSVal])
+      else
+        raise Exception.Create('`process` initialized incorrectly (dont have `emit` method)');
+      procExitCodeVal := process.ptr.GetPropValue(cx, 'exitCode');
+      if procExitCodeVal.isInteger then
+        ExitCode := procExitCodeVal.asInteger;
+    finally
+      cx.FreeRootedObject(process);
+    end;
+  except
+    on E: Exception do begin
+      ExitCode := 1;
+    end;
+  end;
+
   if Manager.FRemoteDebuggerThread <> nil then begin
     TSMRemoteDebuggerThread(Manager.FRemoteDebuggerThread).stopDebugCurrentThread(Self);
   end;
@@ -798,23 +923,30 @@ begin
   FDllModulesUnInitProcList.Free;
   inherited Destroy;
 
-  cx.FreeRootedObject(FGlobalObjectDbg);
-  cx.FreeRootedObject(FGlobalObject);
-  TSynFPUException.ForLibraryCode;
-  cx.LeaveCompartment(comp);
-  if FThreadID=GetCurrentThreadId then
-    cx^.Destroy; // SM 45 expects the context to be released in the same thread
-  KillWatchdog;
-  if FThreadID=GetCurrentThreadId then
-    rt^.Destroy;
+  if FGlobalObjectDbg <> nil then cx.FreeRootedObject(FGlobalObjectDbg);
+  if FGlobalObject <> nil then cx.FreeRootedObject(FGlobalObject);
+  with TSynFPUException.ForLibraryCode do begin
+    cx.LeaveCompartment(comp);
+    if FThreadID=GetCurrentThreadId then
+      cx^.Destroy; // SM 45 expects the context to be released in the same thread
+    KillWatchdog;
+  {$IFNDEF SM52}
+    if FThreadID=GetCurrentThreadId then
+      rt^.Destroy;
+  {$ENDIF}
+  end;
 end;
 
+{$IFDEF SM52}
+procedure TSMEngine.DoProcessJSError(report: PJSErrorReport);
+{$ELSE}
 procedure TSMEngine.DoProcessJSError(errMsg: PCChar; report: PJSErrorReport);
+{$ENDIF}
 var
   exc: jsval;
   exObj: PJSRootedObject;
 begin
-  if report.flags = JSREPORT_WARNING then
+  if {$IFDEF SM52}(report = nil) or {$ENDIF}(report.flags = JSREPORT_WARNING) then
     Exit;
 
   FErrorExist := True;
@@ -824,9 +956,13 @@ begin
       report^.filename,StrLen(pointer(report^.filename)));
   FLastErrorLine := report^.lineno;
   FLastErrorNum := report^.errorNumber;
+  {$IFDEF SM52}
+  FLastErrorMsg := Utf8ToString(FormatUTF8('%', [report^.message_]));
+  {$ELSE}
   if report^.ucmessage=nil then
     FLastErrorMsg := Utf8ToString(FormatUTF8('%', [errMsg])) else
     SetString(FLastErrorMsg, PWideChar(report^.ucmessage), StrLenW(PWideChar(report^.ucmessage)));
+  {$ENDIF}
   FLastErrorStackTrace := '';
   if ( cx.GetPendingException(exc)) then begin
     if exc.isObject then begin
@@ -854,11 +990,80 @@ begin
 end;
 
 procedure TSMEngine.CheckJSError(res: Boolean);
+var exc: jsval;
+    {$IFDEF SM52}
+    excObj: PJSRootedObject;
+    {$ENDIF}
+    rep: PJSErrorReport;
+    R: RawUTF8;
 begin
-  if (FTimeOutAborted and (FLastErrorMsg <> '')) or FErrorExist then
+{$IFDEF SM52}
+  if JS_IsExceptionPending(fCx) and JS_GetPendingException(cx, exc) then begin
+    if exc.isObject then begin
+      excObj := cx.NewRootedObject(exc.asObject);
+      try
+        rep := JS_ErrorFromException(cx, excObj.ptr);
+        if (rep <> nil) and (rep.flags = JSREPORT_WARNING) then
+          exit;
+        // Error inheritance (assert.AssertionError for example)
+        // will return an nil as a rep, so we need to examine a exc object
+        FErrorExist := True;
+
+        excObj.ptr.GetProperty(cx, 'fileName', exc);
+        if (not exc.isVoid) and (exc.isString) then
+          FLastErrorFileName := exc.asJSString.ToUTF8(fCx);
+
+        excObj.ptr.GetProperty(cx, 'lineNumber', exc);
+        if (not exc.isVoid) then begin
+          if (exc.isString) then begin // error line is in format line:char (123:16)
+            R := exc.asJSString.ToUTF8(fCx);
+            FLastErrorLine := GetInteger(pointer(R));
+          end else if (exc.isInteger) then
+            FLastErrorLine := exc.asInteger
+        end;
+
+        excObj.ptr.GetProperty(cx, 'message', exc);
+        if (not exc.isVoid) and (exc.isString) then
+          FLastErrorMsg := exc.asJSString.ToString(fCx);
+
+        excObj.ptr.GetProperty(cx, 'stack', exc);
+        if (not exc.isVoid) and (exc.isString) then
+          FLastErrorStackTrace := exc.asJSString.ToSynUnicode(fCx);
+
+        if (rep <> nil) then
+          FLastErrorNum := rep^.errorNumber
+        else begin
+          excObj.ptr.GetProperty(cx, 'errorNumber', exc);
+          if (not exc.isVoid) and (exc.isInteger) then
+            FLastErrorNum := exc.asInteger
+          else
+            FLastErrorNum := 0;
+        end;
+      finally
+        cx.FreeRootedObject(excObj);
+      end;
+    end else if exc.isString then begin
+      FErrorExist := True;
+      FLastErrorFileName := '<betterToThrowErrorInsteadOfPlainValue>';
+      FLastErrorMsg := exc.asJSString.ToString(fCx);
+      FLastErrorStackTrace := '';
+      FLastErrorNum := 0;
+    end else begin
+      FErrorExist := True;
+      FLastErrorFileName := '<betterToThrowError>';
+      FLastErrorMsg := 'code throw a plain value instead of Error (or error like) object';
+      FLastErrorStackTrace := '';
+      FLastErrorNum := 0;
+    end;
     raise ESMException.CreateWithTrace(FLastErrorFileName, FLastErrorNum, FLastErrorLine, FLastErrorMsg, FLastErrorStackTrace);
-  if not res and not FTimeOutAborted then
+  end;
+{$ENDIF}
+  if (FTimeOutAborted and (FLastErrorMsg <> '')) or FErrorExist then begin
+    raise ESMException.CreateWithTrace(FLastErrorFileName, FLastErrorNum, FLastErrorLine, FLastErrorMsg, FLastErrorStackTrace);
+  end;
+  if not res and not FTimeOutAborted then begin
     raise ESMException.CreateWithTrace(FLastErrorFileName, 0, FLastErrorLine, 'Error compiling script', '');
+  end;
 end;
 
 procedure TSMEngine.ClearLastError;
@@ -871,7 +1076,11 @@ end;
 
 procedure TSMEngine.GarbageCollect;
 begin
+{$IFDEF SM52}
+  cx.GC;
+{$ELSE}
   rt.GC;
+{$ENDIF}
 end;
 
 procedure TSMEngine.MaybeGarbageCollect;
@@ -946,7 +1155,7 @@ begin
   FMaxNurseryBytes := AMaxNurseryBytes;
 end;
 
-function TSMEngineManager.ThreadEngineIndex(ThreadID: DWORD): Integer;
+function TSMEngineManager.ThreadEngineIndex(ThreadID: TThreadID): Integer;
 begin
   if self <> nil then
     for result := 0 to FEnginePool.Count-1 do
@@ -960,7 +1169,7 @@ var
   dllModule: PDllModuleRec;
   i: Integer;
 begin
-  FWorkersManager.free;
+  FWorkersManager.Free;
   FWorkersManager := nil;
   stopDebugger;
   if FEnginePool.Count>0 then
@@ -989,7 +1198,7 @@ begin
   end;
 end;
 
-function TSMEngineManager.EngineForThread(ThreadID: DWORD): TSMEngine;
+function TSMEngineManager.EngineForThread(ThreadID: TThreadID): TSMEngine;
 var
   i: integer;
 begin
@@ -1014,11 +1223,8 @@ var
   require: PJSRootedObject;
   __filename: PWideChar;
   __dirname: PWideChar;
-  {$ifdef FPC}
-  fHandle: TLibHandle;
-  {$else}
-  fHandle: THandle;
-  {$endif}
+
+  fHandle: HMODULE;
   ModuleRec: PDllModuleRec;
 
 const
@@ -1035,9 +1241,10 @@ begin
       dirname := ExtractFilePath(UTF8ToString(filename)) ;
       ModuleRec := PDllModuleRec(FDllModules.GetObjectByName(filename));
       if ModuleRec = nil then begin
-        fHandle := SafeLoadLibrary(UTF8ToString(filename));
+        fHandle := {$IFDEF FPC}dynlibs.{$ENDIF}SafeLoadLibrary(UTF8ToString(filename));
         if fHandle=0 then
-          raise ESMException.CreateFmt('Unable to load %s',[filename]);
+          raise ESMException.CreateFmt('Unable to load %s (%s)',
+            [filename, {$ifdef FPC}GetLoadErrorStr{$else}SysErrorMessage(GetLastError){$endif}]);
         new(ModuleRec);
         ModuleRec.init := GetProcAddress(fHandle, INIT_PROC_NAME);
         if not Assigned(ModuleRec.init) then begin
@@ -1103,7 +1310,7 @@ end;
 
 function TSMEngineManager.ThreadSafeEngine(pThreadData: pointer): TSMEngine;
 var i: integer;
-    ThreadID: DWORD;
+    ThreadID: TThreadID;
 begin
   FEnginePool.Safe.Lock;
   try
@@ -1145,6 +1352,9 @@ begin
     {$endif}
 
     Result := FEngineClass.Create(Self);
+    if grandParent = nil then
+      grandParent := Result;
+
     if (pThreadData <> nil) then
       Result.SetThreadData(pThreadData);
 
@@ -1152,6 +1362,11 @@ begin
       Result.fnameForDebug := WorkersManager.getCurrentWorkerThreadName
     else if Assigned(OnGetName) then
       Result.fnameForDebug := OnGetName(Result);
+
+    if Assigned(OnGetWebAppRootPath) then
+      Result.fWebAppRootDir := OnGetWebAppRootPath(Result)
+    else
+      Result.fWebAppRootDir := StringToUTF8(ExeVersion.ProgramFilePath);
 
     result.fThreadID := ThreadID;
     FEnginePool.Add(result);
@@ -1177,7 +1392,7 @@ begin
   FEnginePool.Safe.UnLock;
 end;
 
-procedure TSMEngineManager.ReleaseEngineForThread(aThreadID: DWORD);
+procedure TSMEngineManager.ReleaseEngineForThread(aThreadID: TThreadID);
 var
   i: integer;
 begin
@@ -1235,11 +1450,11 @@ end;
 
 procedure TSMEngineManager.stopDebugger;
 begin
-  if FRemoteDebuggerThread<> nil then begin
+  if FRemoteDebuggerThread <> nil then begin
     TSMRemoteDebuggerThread(FRemoteDebuggerThread).SetTerminated;
     FRemoteDebuggerThread := nil;
+    end;
   end;
-end;
 
 function StringReplaceChars(const Source: String; OldChar, NewChar: Char): String;
 var i,j,n: integer;
@@ -1260,9 +1475,14 @@ end;
 
 function RelToAbs(const ABaseDir, AFileName: TFileName; ACheckResultInsideBase: boolean = false): TFileName;
 var
+{$IFNDEF FPC}
   aBase, aTail: PChar;
   localBase, localTail: TFileName;
+{$ELSE}
+  aBase: TFileName;
+{$ENDIF}
 begin
+{$IFNDEF FPC}
   if AFileName <> '' then begin
     if PathIsRelative(PChar(AFileName)) then begin
       localTail := AFileName;
@@ -1287,25 +1507,36 @@ begin
   else
     SetLength(Result, {$ifdef UNICODE}StrLenW{$else}StrLen{$endif}(@Result[1]));
 
-
   if ACheckResultInsideBase and
      ((length(Result) < length(ABaseDir)) or (length(ABaseDir)=0) or
       (StrLIComp(PChar(@Result[1]), @localBase[1], length(localBase)) <> 0)) then
     Result := ''
-end;
+{$ELSE}
+{
+  aBase := GetForcedPathDelims(ABaseDir);
+  if AFileName <> '' then begin
+    aTail := GetForcedPathDelims(AFileName);
+    if FilenameIsAbsolute(aTail) then begin
+      localTail := '';
+      localBase := aBase;
+    end else begin
+      localTail := aTail;
+      localBase := aBase;
+    end;
+  end else begin
+    localTail := '';
+    localBase := aBase;
+  end;
+  Result := CreateAbsolutePath(localTail, localBase);
+}
+  aBase := ExpandFileName(ABaseDir);
+  Result := ExpandFileNameUTF8(AFileName, aBase);
 
-function TSMEngineManager.CreateNewEngine(pThreadData: pointer): TSMEngine;
-begin
-  Result := FEngineClass.Create(Self);
-  if (pThreadData <> nil) then
-    Result.SetThreadData(pThreadData);
-  if Assigned(OnGetName) then
-    Result.fnameForDebug := OnGetName(Result);
-
-  if FRemoteDebuggerThread <> nil then
-    TSMRemoteDebuggerThread(FRemoteDebuggerThread).startDebugCurrentThread(result);
-
-  DoOnNewEngine(Result);
+  if ACheckResultInsideBase and
+     ((Length(Result) < Length(aBase)) or (Length(aBase)=0) or
+      (not Result.StartsWith(aBase, false))) then
+    Result := ''
+{$ENDIF}
 end;
 
 function TSMEngine.DoProcessOperationCallback: Boolean;
@@ -1315,8 +1546,9 @@ end;
 
 // Remove #13 characters from script(change it to #32)
 // Spidermonkey debugger crashes when `...`(new ES6 strings) contains #13#10
-procedure remChar13FromScript(const Script: SynUnicode); {$ifdef HASINLINE} inline; {$endif}
-var c: PWideChar;
+procedure remChar13FromScript(const Script: SynUnicode); {$IFDEF HASINLINE}inline;{$ENDIF}
+var
+    c: PWideChar;
     i: Integer;
 begin
   c := pointer(script);
@@ -1334,32 +1566,42 @@ var r: Boolean;
     isFirst: Boolean;
     rval: jsval;
 begin
-  TSynFPUException.ForLibraryCode;
-  ClearLastError;
-  ScheduleWatchdog(fTimeoutValue);
-  isFirst := not cx.IsRunning;
-  opts := cx.NewCompileOptions;
-  opts.filename := Pointer(scriptName);
+  with TSynFPUException.ForLibraryCode do begin
+    ClearLastError;
+    ScheduleWatchdog(fTimeoutValue);
+    isFirst := not cx.IsRunning;
+    opts := cx.NewCompileOptions;
+    opts.filename := Pointer(scriptName);
 
-  remChar13FromScript(script);
-  r := cx.EvaluateUCScript(
-      opts, pointer(script), length(script), result);
-  cx.FreeCompileOptions(opts);
-  if r and isFirst and GlobalObject.ptr.HasProperty(cx, '_timerLoop') then
-    r := GlobalObject.ptr.CallFunctionName(cx, '_timerLoop', 0, nil, rval);
-  if not r then
-    r := false;
-  ScheduleWatchdog(-1);
-  CheckJSError(r);
+    remChar13FromScript(script);
+    r := cx.EvaluateUCScript(
+        opts, pointer(script), length(script), result);
+    cx.FreeCompileOptions(opts);
+    if r and isFirst and GlobalObject.ptr.HasProperty(cx, '_timerLoop') then
+      r := GlobalObject.ptr.CallFunctionName(cx, '_timerLoop', 0, nil, rval);
+    if not r then
+      r := false;
+    ScheduleWatchdog(-1);
+    CheckJSError(r);
+  end;
+end;
+
+procedure TSMEngine.Evaluate(const script: SynUnicode; const scriptName: RawUTF8; lineNo: Cardinal);
+var
+  jsvalue: jsval;
+begin
+  Evaluate(script, scriptName, lineNo, jsvalue);
 end;
 
 function TSMEngine.EvaluateModule(const scriptName: RawUTF8): jsval;
 var
   global: PJSRootedObject;
+  reflect: jsval;
   moduleLoader: PJSRootedObject;
 begin
   global := cx.NewRootedObject(cx.CurrentGlobalOrNull);
-  moduleLoader := cx.NewRootedObject(global.ptr.GetPropValue(cx, 'Reflect').asObject.GetPropValue(cx, 'Loader').asObject);
+  reflect := global.ptr.GetPropValue(cx, 'Reflect');
+  moduleLoader := cx.NewRootedObject(reflect.asObject.GetPropValue(cx, 'Loader').asObject);
   try
     result := CallObjectFunction(moduleLoader, 'import', [cx.NewJSString(scriptName).ToJSVal])
   finally
@@ -1375,22 +1617,23 @@ var r: Boolean;
     rval: jsval;
     global: PJSRootedObject;
 begin
-  TSynFPUException.ForLibraryCode;
-  ClearLastError;
-  ScheduleWatchdog(fTimeoutValue);
-  isFirst := not cx.IsRunning;
-  r := obj.ptr.CallFunctionName(cx, funcName, high(args) + 1, @args[0], Result);
-  if r and isFirst then begin
-    global := cx.NewRootedObject(cx.CurrentGlobalOrNull);
-    try
-      if global.ptr.HasProperty(cx, '_timerLoop') then
-        r := global.ptr.CallFunctionName(cx, '_timerLoop', 0, nil, rval);
-    finally
-      cx.FreeRootedObject(global);
+  with TSynFPUException.ForLibraryCode do begin
+    ClearLastError;
+    ScheduleWatchdog(fTimeoutValue);
+    isFirst := not cx.IsRunning;
+    r := obj.ptr.CallFunctionName(cx, funcName, high(args) + 1, @args[0], Result);
+    if r and isFirst then begin
+      global := cx.NewRootedObject(cx.CurrentGlobalOrNull);
+      try
+        if global.ptr.HasProperty(cx, '_timerLoop') then
+          r := global.ptr.CallFunctionName(cx, '_timerLoop', 0, nil, rval);
+      finally
+        cx.FreeRootedObject(global);
+      end;
     end;
+    ScheduleWatchdog(-1);
+    CheckJSError(r);
   end;
-  ScheduleWatchdog(-1);
-  CheckJSError(r);
 end;
 
 procedure TSMEngine.CancelExecution(AWithException: boolean = true);
@@ -1404,7 +1647,11 @@ begin
     FLastErrorNum := 0;
     FLastErrorMsg := LONG_SCRIPT_EXECUTION;
   end;
+{$IFDEF SM52}
+  cx.RequestInterruptCallback;
+{$ELSE}
   rt.RequestInterruptCallback;
+{$ENDIF}
 end;
 
 function TSMEngine.InitWatchdog: boolean;
@@ -1451,17 +1698,29 @@ end;
 
 procedure WatchdogMain(arg: pointer); cdecl;
 var eng: TSMEngine;
+{$IFDEF SM52}
+    cx: PJSContext;
+{$ELSE}
     rt: PJSRuntime;
+{$ENDIF}
     now_: int64;
     sleepDuration: PRIntervalTime;
     status: PRStatus;
 begin
   PR_SetCurrentThreadName('JS Watchdog');
   eng := TSMEngine(arg);
+{$IFDEF SM52}
+  cx := eng.cx;
+{$ELSE}
   rt := eng.rt;
+{$ENDIF}
   PR_Lock(eng.fWatchdogLock);
   while Assigned(eng.fWatchdogThread) do begin
+{$IFDEF SM52}
+    now_ := cx.NowMs;
+{$ELSE}
     now_ := rt.NowMs;
+{$ENDIF}
     if (eng.fWatchdogHasTimeout and not IsBefore(now_, eng.fWatchdogTimeout)) then begin
       // The timeout has just expired. Trigger the operation callback outside the lock
       eng.fWatchdogHasTimeout := false;
@@ -1474,7 +1733,11 @@ begin
       if (eng.fWatchdogHasTimeout) then begin
         // Time hasn't expired yet. Simulate an operation callback
         // which doesn't abort execution.
+{$IFDEF SM52}
+        cx.RequestInterruptCallback;
+{$ELSE}
         rt.RequestInterruptCallback;
+{$ENDIF}
       end;
       sleepDuration := PR_INTERVAL_NO_TIMEOUT;
       if (eng.fWatchdogHasTimeout) then
@@ -1498,7 +1761,11 @@ begin
     exit;
   end;
   interval := int64(t * PRMJ_USEC_PER_SEC);
+{$IFDEF SM52}
+  timeout := cx.NowMs + interval;
+{$ELSE}
   timeout := rt.NowMs + interval;
+{$ENDIF}
   PR_Lock(fWatchdogLock);
   if not Assigned(fWatchdogThread) then begin
     Assert(not fWatchdogHasTimeout);

@@ -57,9 +57,9 @@ type
       lasttix: Int64;
     end;
     SavePrefix: TFileName;
+    OnBeforeExecute: TOnExecute;
     OnAfterExecute: TOnExecute;
     OnAfterGetState: TNotifyEvent;
-    constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function Open(Definition: TDDDRestClientSettings; Model: TSQLModel = nil): boolean; virtual;
     procedure Show; virtual;
@@ -172,9 +172,10 @@ begin
         State.version := fClient.SessionVersion;
       State.mem := State.raw.U['memused'];
       if State.mem = '' then
-        State.mem := KB(state.Raw.O['SystemMemory'].O['Allocated'].I['Used'] shl 10);
+        KBU(state.Raw.O['SystemMemory'].O['Allocated'].I['Used'] shl 10, State.mem);
       State.clients := State.raw.I['clients'];
       State.raw.GetAsDocVariantSafe('exception')^.ToRawUTF8DynArray(State.exceptions);
+      State.raw.AddValue('remoteip', fClient.Server + ':' + fClient.Port);
       State.lasttix := GetTickCount64;
     end;
     if Assigned(OnAfterGetState) then
@@ -207,8 +208,10 @@ begin
     for i := 0 to n - 1 do begin
       f := AddDBFrame(fDatabases[i], fDatabases[i], DBFrameClass);
       f.Open;
-      if i = 0 then
+      if i = 0 then begin
         fPage.ActivePageIndex := 1;
+        f.SetResult(State.raw.ToJSON('', '', jsonUnquotedPropName));
+      end;
     end;
     Application.ProcessMessages;
     fDBFrame[0].mmoSQL.SetFocus;
@@ -231,19 +234,6 @@ begin
   finally
     Screen.Cursor := crDefault;
   end;
-end;
-
-constructor TAdminControl.Create(AOwner: TComponent);
-begin
-  inherited;
-  fDlgSave := TSaveDialog.Create(AOwner);
-  fDlgSave.Options := [ofOverwritePrompt, ofHideReadOnly, ofPathMustExist,
-    ofEnableSizing];
-  fDlgSave.Filter :=
-    'JSON (human readable)|*.json|JSON (small)|*.json|CSV (text)|*.txt|Excel/Office (.ods)|*.ods|HTML|*.html';
-  fDlgSave.DefaultExt := '.html';
-  fDlgSave.FilterIndex := 5;
-  fDlgSave.InitialDir := GetShellFolderPath(CSIDL_DOCUMENTS);
 end;
 
 destructor TAdminControl.Destroy;
@@ -362,6 +352,7 @@ begin
   result.Client := fClient;
   result.Admin := fAdmin;
   result.DatabaseName := aDatabaseName;
+  result.OnBeforeExecute := OnBeforeExecute;
   result.OnAfterExecute := OnAfterExecute;
   result.SavePrefix := SavePrefix;
   fDBFrame[n] := result;
@@ -441,6 +432,16 @@ begin
   if (grid = nil) or (grid.RowCount = 0) then
     exit;
   if Fmt = expSaveGrid then begin
+    if fDlgSave = nil then begin
+      fDlgSave := TSaveDialog.Create(Owner);
+      fDlgSave.Options := [ofOverwritePrompt, ofHideReadOnly, ofPathMustExist,
+        ofEnableSizing];
+      fDlgSave.Filter :=
+        'JSON (human readable)|*.json|JSON (small)|*.json|CSV (text)|*.txt|Excel/Office (.ods)|*.ods|HTML|*.html';
+      fDlgSave.DefaultExt := '.html';
+      fDlgSave.FilterIndex := 5;
+      fDlgSave.InitialDir := GetShellFolderPath(CSIDL_DOCUMENTS);
+    end;
     if PropNameValid(pointer(db.GridLastTableName)) then
       name := db.GridLastTableName;
     fDlgSave.FileName := SysUtils.Trim(Format('%s %s %s',

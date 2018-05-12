@@ -1,10 +1,10 @@
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
-    Scripting support for mORMot Copyright (C) 2017 Pavel Mashlyakovsky
+    Scripting support for mORMot Copyright (C) 2018 Pavel Mashlyakovsky
       pavel.mash at gmail.com
 
   *** BEGIN LICENSE BLOCK *****
@@ -21,7 +21,7 @@
 
   The Initial Developer of the Original Code is
   Pavel Mashlyakovsky.
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -53,7 +53,7 @@
 {$DEFINE JS_THREADSAFE}
 // we MUST compile mozjs with JS_THREADSAFE directive
 
-{$DEFINE SM_DEBUG}
+{.$DEFINE SM_DEBUG}
 // for debuging SynSM
 
 {$DEFINE CONSIDER_TIME_IN_Z}
@@ -63,11 +63,17 @@
 // ensure *TO_JSVAL() macros will check explicitly for the target type
 
 {$ifndef FPC}
+{$IFDEF CONDITIONALEXPRESSIONS}
 {$if CompilerVersion = 24.0}
   // see http://synopse.info/forum/viewtopic.php?pid=12598#p12598
   {$define FIXBUGXE3}
 {$ifend}
+{$ELSE}
+  Error: SyNode requires Delphi 7 of higher
+{$ENDIF}
 {$endif}
 
+{$IFNDEF SM52}
 {$DEFINE SM45}
+{$ENDIF}
 

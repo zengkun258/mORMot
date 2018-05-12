@@ -5,10 +5,10 @@ unit SynSM;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
-    Scripting support for mORMot Copyright (C) 2017 Pavel Mashlyakovsky
+    Scripting support for mORMot Copyright (C) 2018 Pavel Mashlyakovsky
       pavel.mash at gmail.com
 
     Some ideas taken from
@@ -29,7 +29,7 @@ unit SynSM;
 
   The Initial Developer of the Original Code is
   Pavel Mashlyakovsky.
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -1054,7 +1054,9 @@ begin
   fNativeMethods.Init(TypeInfo(TSMEngineMethodEventDynArray),
     fNativeMethod,HashPointer,SortDynArrayPointer,nil,@fNativeMethodCount);
 
+  {$ifdef RESETFPUEXCEPTION}
   TSynFPUException.ForLibraryCode;
+  {$endif}
   FManager := aManager;
   FEngineContentVersion := FManager.ContentVersion;
   frt := JS_NewRuntime(FManager.MaxPerEngineMemory, JS_USE_HELPER_THREADS);
@@ -1102,7 +1104,9 @@ destructor TSMEngine.Destroy;
 begin
   inherited Destroy;
   VarClear(FGlobal);
+  {$ifdef RESETFPUEXCEPTION}
   TSynFPUException.ForLibraryCode;
+  {$endif}
   //JS_RemoveExternalStringFinalizer(ExternalStringFinalizer);
 //  comp^.Destroy;
   JS_LeaveCompartment(cx, comp);
@@ -1315,7 +1319,9 @@ var engine: TSMEngine;
       [callee.ToNativeFunctionName(cx)]));
   end;
 begin
+  {$ifdef RESETFPUEXCEPTION}
   TSynFPUException.ForDelphiCode; // ensure we are back in Delphi FPU mask
+  {$endif}
   try
     engine := cx.PrivateData;
     callee.FValue := vp^;
@@ -1694,7 +1700,7 @@ begin
         FValue := JSVAL_FALSE;
     vtInteger:
       FValue := INT_TO_JSVAL(V.VInteger);
-    vtInt64:
+    vtInt64{$ifdef FPC},vtQWord{$endif}:
       SetInt64(V.VInt64^);
     vtCurrency:
       FValue := DOUBLE_TO_JSVAL(V.VCurrency^);
@@ -2046,7 +2052,9 @@ procedure TSMObject.Evaluate(const script: SynUnicode; const scriptName: RawUTF8
 var r: JSBool;
     eng: TSMEngine;
 begin
+  {$ifdef RESETFPUEXCEPTION}
   TSynFPUException.ForLibraryCode;
+  {$endif}
   eng := Engine;
   eng.ClearLastError;
   eng.ScheduleWatchdog(eng.fTimeoutInterval);
@@ -2061,7 +2069,9 @@ procedure TSMObject.RunMethod(const methodName: AnsiString;
 var r: JSBool;
     eng: TSMEngine;
 begin
+  {$ifdef RESETFPUEXCEPTION}
   TSynFPUException.ForLibraryCode;
+  {$endif}
   eng := Engine;
   eng.ClearLastError;
   eng.ScheduleWatchdog(Engine.fTimeoutInterval);

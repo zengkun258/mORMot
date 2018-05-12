@@ -6,7 +6,7 @@ unit mORMotUI;
 (*
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotUI;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -522,7 +522,7 @@ type
 
   /// allow to track and load/save UI components as JSON
   // - may be used to persist TEdit / TCheckBox / TComboBox values on a form
-  // when the application leaves 
+  // when the application leaves
   TUIComponentsPersist = class
   protected
     fTracked: array of TComponent;
@@ -541,7 +541,7 @@ type
     /// save all tracked controls properties as JSON in a local file
     procedure SaveToFile;
     /// the local JSON file used for persistence
-    // - is set to 'executablename.default' if none is specified   
+    // - is set to 'executablename.default' if none is specified
     property FileName: TFileName read GetFileName write fFileName;
   end;
 
@@ -1875,7 +1875,7 @@ begin
   if fFieldIndexTimeLogForMark=-2 then begin
     fFieldIndexTimeLogForMark := -1;
     for F := 0 to Table.FieldCount-1 do
-      if Table.FieldType(F,nil)=sftTimeLog then begin
+      if Table.FieldType(F)=sftTimeLog then begin
         fFieldIndexTimeLogForMark := F;
         break;
       end;

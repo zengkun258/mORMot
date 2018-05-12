@@ -5,10 +5,10 @@ unit SyNodeRemoteDebugger;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
-    SyNode for mORMot Copyright (C) 2017 Pavel Mashlyakovsky & Vadim Orel
+    SyNode for mORMot Copyright (C) 2018 Pavel Mashlyakovsky & Vadim Orel
       pavel.mash at gmail.com
 
     Some ideas taken from
@@ -37,6 +37,7 @@ unit SyNodeRemoteDebugger;
   - Vadim Orel
   - Pavel Mashlyakovsky
   - win2014
+  - George
 
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -53,13 +54,6 @@ unit SyNodeRemoteDebugger;
   ***** END LICENSE BLOCK *****
 
 
-  ---------------------------------------------------------------------------
-   Download the mozjs-45 library at
-     x32: https://unitybase.info/downloads/mozjs-45.zip
-     x64: https://unitybase.info/downloads/mozjs-45-x64.zip
-  ---------------------------------------------------------------------------
-
-
   Version 1.18
   - initial release. Use SpiderMonkey 45
 
@@ -70,9 +64,6 @@ interface
 
 uses
   Classes, SynCrtSock,
-  {$ifdef BRANCH_WIN_WEB_SOCKET}
-  SynCrtCommons,
-  {$endif}
   SynCommons, SyNode, SpiderMonkey;
 
 type
@@ -110,8 +101,17 @@ type
 
 implementation
 uses
-  {$ifdef MSWINDOWS} Windows, {$endif}
-  SynWinSock, SysUtils;
+  {$ifdef MSWINDOWS}
+    Windows,
+    SynWinSock,
+  {$else}
+    Types,
+    BaseUnix,
+    Sockets,
+    SynFPCSock,
+    SynFPCLinux,
+  {$endif}
+  SysUtils;
 
 type
   TSMDebugger = class;
@@ -122,6 +122,7 @@ type
     fNeedClose: boolean;
     fDebugger: TSMDebugger;
     fCommunicationSock: TCrtSocket;
+    // read a packages in format package-length:JSON
     function sockRead(out packet: RawUTF8): boolean;
     procedure sockWrite(const packet: RawUTF8);
     procedure HandleMessage(const request: Variant);
@@ -133,7 +134,7 @@ type
     destructor Destroy; override;
 
     procedure Send(const packet: RawUTF8);
-    procedure startListening(socket: TSocket);
+    procedure startListening(socket: TCrtSocket);
   end;
 
   TSMDebugger = class
@@ -142,11 +143,15 @@ type
     fIsPaused: boolean;
     fMessagesQueue: TRawUTF8ListHashedLocked;
     fLogQueue: TRawUTF8ListHashedLocked;
+    {$IFNDEF SM52}
     fOldInterruptCallback: JSInterruptCallback;
+    {$ENDIF}
     fSmThreadID: TThreadID;
     fNameForDebug: RawUTF8;
     fCommunicationThread: TSMRemoteDebuggerCommunicationThread;
     fIsJustInited: boolean;
+    fDebuggerName: RawUTF8;
+    fWebAppRootPath: RawUTF8;
     /// Debugger create his own compartmnet (his own global object & scripting context)
     // Here we initialize a new compartment
     procedure InitializeDebuggerCompartment(aEng: TSMEngine; aNeedPauseOnFirstStep: boolean);
@@ -174,12 +179,16 @@ begin
 end;
 
 destructor TSMRemoteDebuggerThread.Destroy;
+var
+  i: Integer;
 begin
   fCommunicationThreads.Safe.Lock;
   try
-    while fCommunicationThreads.Count > 0 do begin
-      TSMRemoteDebuggerCommunicationThread(fCommunicationThreads.Count - 1).Terminate;
-      fCommunicationThreads.Delete(fCommunicationThreads.Count);
+    i := fCommunicationThreads.Count;
+    while i > 0 do begin
+      Dec(i);
+      TSMRemoteDebuggerCommunicationThread(fCommunicationThreads[i]).Terminate;
+      fCommunicationThreads.Delete(i);
     end;
   finally
     fCommunicationThreads.Safe.UnLock;
@@ -212,57 +221,71 @@ begin
     Debugger.fLogQueue.LockedAdd(Text);
 
     if eng.cx.IsRunning then
+{$IFDEF SM52}
+      eng.cx.RequestInterruptCallback
+{$ELSE}
       eng.rt.RequestInterruptCallback
+{$ENDIF}
     else
+{$IFDEF SM52}
+    begin
+      eng.cx.RequestInterruptCallback;
+      eng.cx.CheckForInterrupt;
+    end;
+{$ELSE}
       eng.rt.InterruptCallback(eng.cx);
+{$ENDIF}
   end;
 end;
 
 procedure TSMRemoteDebuggerThread.Execute;
 var
   ServerSock: TCrtSocket;
-  ClientSin: TVarSin;
-  AcceptedSocket: TSocket;
+  AcceptedSocket: TCrtSocket;
   thread: TSMRemoteDebuggerCommunicationThread;
   threadsCnt: integer;
 begin
+  AcceptedSocket := nil;
   ServerSock := TCrtSocket.Bind(fPort);
   try
     repeat
-      AcceptedSocket := Accept(ServerSock.Sock, ClientSin);
-      if Terminated then begin
+      AcceptedSocket := ServerSock.AcceptIncoming();
+      if (AcceptedSocket <> nil) then begin
+        if Terminated then begin
+          fCommunicationThreads.Safe.Lock;
+          try
+            while fCommunicationThreads.count > 0 do begin
+              threadsCnt := fCommunicationThreads.Count;
+              thread := TSMRemoteDebuggerCommunicationThread(fCommunicationThreads[threadsCnt - 1]);
+              fCommunicationThreads.Delete(threadsCnt - 1);
+              thread.SetTerminated;
+            end;
+          finally
+            fCommunicationThreads.Safe.UnLock;
+          end;
+
+          while fThreadInWork>0 do
+            SleepHiRes(10);
+          exit;
+        end;
+
         fCommunicationThreads.Safe.Lock;
         try
-          while fCommunicationThreads.count > 0 do begin
-            threadsCnt := fCommunicationThreads.Count;
+          threadsCnt := fCommunicationThreads.Count;
+          if threadsCnt = 0 then begin //no free threads;
+            AcceptedSocket.Close;
+          end else begin
             thread := TSMRemoteDebuggerCommunicationThread(fCommunicationThreads[threadsCnt - 1]);
             fCommunicationThreads.Delete(threadsCnt - 1);
-            thread.SetTerminated;
+            thread.startListening(AcceptedSocket);
           end;
         finally
           fCommunicationThreads.Safe.UnLock;
         end;
-
-        while fThreadInWork>0 do
-          SleepHiRes(10);
-        exit;
-      end;
-
-      fCommunicationThreads.Safe.Lock;
-      try
-        threadsCnt := fCommunicationThreads.Count;
-        if threadsCnt = 0 then begin //no free threads;
-          CloseSocket(AcceptedSocket);
-        end else begin
-          thread := TSMRemoteDebuggerCommunicationThread(fCommunicationThreads[threadsCnt - 1]);
-          fCommunicationThreads.Delete(threadsCnt - 1);
-          thread.startListening(AcceptedSocket);
-        end;
-      finally
-        fCommunicationThreads.Safe.UnLock;
       end;
     until Terminated;
   finally
+    AcceptedSocket.Free;
     ServerSock.Free;
   end;
 end;
@@ -273,21 +296,23 @@ var
   curThreadID: TThreadID;
 begin
   curThreadID := GetCurrentThreadId;
-  fDebuggers.Safe.Lock;
-  try
-    if aEng <> nil then begin
-      for I := 0 to fDebuggers.Count - 1 do
-        if TSMDebugger(fDebuggers[i]).fNameForDebug = aEng.nameForDebug then begin
-          // todo
-          TSMDebugger(fDebuggers[i]).fSmThreadID := curThreadID;
-          TSMDebugger(fDebuggers[i]).InitializeDebuggerCompartment(aEng, FNeedPauseOnFirstStep);
-          exit;
-        end;
-      fDebuggers.Add(TSMDebugger.Create(self, aEng));
-    end else
-      raise ESMException.Create('Can''t start debugger for non-existed engine');
-  finally
-    fDebuggers.Safe.UnLock;
+  if not Terminated and (fDebuggers <> nil) then begin
+    fDebuggers.Safe.Lock;
+    try
+      if aEng <> nil then begin
+        for I := 0 to fDebuggers.Count - 1 do
+          if TSMDebugger(fDebuggers[i]).fNameForDebug = aEng.nameForDebug then begin
+            // todo
+            TSMDebugger(fDebuggers[i]).fSmThreadID := curThreadID;
+            TSMDebugger(fDebuggers[i]).InitializeDebuggerCompartment(aEng, FNeedPauseOnFirstStep);
+            exit;
+          end;
+        fDebuggers.Add(TSMDebugger.Create(self, aEng));
+      end else
+        raise ESMException.Create('Can''t start debugger for non-existed engine');
+    finally
+      fDebuggers.Safe.UnLock;
+    end;
   end;
 end;
 
@@ -301,33 +326,34 @@ var
   dbgObject: PJSRootedObject;
 begin
   curThreadID := GetCurrentThreadId;
-
-  fDebuggers.Safe.Lock;
-  try
-    for I := 0 to fDebuggers.count - 1 do
-      if TSMDebugger(fDebuggers[i]).fSmThreadID = curThreadID then begin
-        if aEng<>nil then begin
-          cx := aEng.cx;
-          cmpDbg := cx.EnterCompartment(aEng.GlobalObjectDbg.ptr);
-          try
-            dbgObject := cx.NewRootedObject(aEng.GlobalObjectDbg.ptr.GetPropValue(cx, 'process').asObject.GetPropValue(cx, 'dbg').asObject);
+  if not Terminated and (fDebuggers <> nil) then begin
+    fDebuggers.Safe.Lock;
+    try
+      for I := 0 to fDebuggers.Count - 1 do
+        if TSMDebugger(fDebuggers[i]).fSmThreadID = curThreadID then begin
+          if aEng<>nil then begin
+            cx := aEng.cx;
+            cmpDbg := cx.EnterCompartment(aEng.GlobalObjectDbg.ptr);
             try
-              if dbgObject.ptr.HasProperty(cx, 'uninit') then
-                aEng.CallObjectFunction(dbgObject, 'uninit', []);
+              dbgObject := cx.NewRootedObject(aEng.GlobalObjectDbg.ptr.GetPropValue(cx, 'process').asObject.GetPropValue(cx, 'dbg').asObject);
+              try
+                if dbgObject.ptr.HasProperty(cx, 'uninit') then
+                  aEng.CallObjectFunction(dbgObject, 'uninit', []);
+              finally
+                cx.FreeRootedObject(dbgObject);
+              end;
             finally
-              cx.FreeRootedObject(dbgObject);
+              cx.LeaveCompartment(cmpDbg);
             end;
-          finally
-            cx.LeaveCompartment(cmpDbg);
-          end;
-          aEng.CancelExecution;
-        end else
-          raise ESMException.Create('internal error: no engine');
-        TSMDebugger(fDebuggers[i]).fSmThreadID := 0;
-        exit;
-      end;
-  finally
-    fDebuggers.Safe.UnLock;
+            aEng.CancelExecution;
+          end else
+            raise ESMException.Create('internal error: no engine');
+          TSMDebugger(fDebuggers[i]).fSmThreadID := 0;
+          exit;
+        end;
+    finally
+      fDebuggers.Safe.UnLock;
+    end;
   end;
 end;
 
@@ -335,12 +361,14 @@ procedure TSMRemoteDebuggerThread.SetTerminated;
 var
   socket: TCrtSocket;
 begin
-  Terminate;
-  socket := Open('127.0.0.1', fPort);
-  if socket<>nil then
-    socket.Free;
-  while fThreadInWork>0 do
-    SleepHiRes(10);
+  if not Terminated then begin
+    Terminate;
+    socket := Open('127.0.0.1', fPort);
+    if socket<>nil then
+      socket.Free;
+    while fThreadInWork>0 do
+      SleepHiRes(10);
+  end;
 end;
 
 { TSMRemoteDebuggerCommunicationThread }
@@ -413,24 +441,36 @@ var
   Writer: TTextWriter;
   engine: TSMEngine;
 begin
-  if request.to = 'root' then begin
+  if {$IFDEF FPC}request.&to{$ELSE}request.to{$ENDIF} = 'root' then begin
     Writer := TTextWriter.CreateOwnedStream;
     try
-      if request.type = 'listAddons' then begin
+      if {$IFDEF FPC}request.&type{$ELSE}request.type{$ENDIF} = 'listAddons' then begin
         Writer.AddShort('{"from":"root","addons":[');
         fParent.fDebuggers.Safe.Lock;
         try
           for I := 0 to fParent.fDebuggers.Count - 1 do begin
             engine := fParent.fManager.EngineForThread(TSMDebugger(fParent.fDebuggers[i]).fSmThreadID);
             if engine <> nil then begin
-              Writer.AddShort('{"actor":"server1.conn1.addon');
-              Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
-              Writer.AddShort('","id":"server1.conn1.addon');
-              Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
+              // Actor represent debug thread here, setting proper name with coxtext thread id
+              // Writer.AddShort('{"actor":"server1.conn1.addon');
+              // Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
+              Writer.AddShort('{"actor":"');
+              Writer.AddShort(TSMDebugger(fParent.fDebuggers[i]).fDebuggerName);
+              Writer.AddShort('.conn1.thread_');
+              { TODO : check that in multithread mode this field equal thread id with js context that we debug, otherwire replace with proper assigment }
+              Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fSmThreadID);
+              // id should be addon id, value from DoOnGetEngineName event
+              // Writer.AddShort('","id":"server1.conn1.addon');
+              // Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
+              Writer.AddShort('","id":"');
+              Writer.AddString(TSMDebugger(fParent.fDebuggers[i]).fNameForDebug);
               Writer.AddShort('","name":"');
               Writer.AddString(TSMDebugger(fParent.fDebuggers[i]).fNameForDebug);
-              Writer.AddShort('","url":"server1.conn1.addon');
-              Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
+              // url most likly should be addon folder in format: file:///drive:/path/
+              // Writer.AddShort('","url":"server1.conn1.addon');
+              // Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fIndex);
+              { TODO : replace with path generation, should be context home dir in format file:///drive:/path/ }
+              Writer.AddShort('","url":"file:///' + StringReplaceAll(TSMDebugger(fParent.fDebuggers[i]).fWebAppRootPath, '\', '/'));
               Writer.AddShort('","debuggable":');
               Writer.Add(TSMDebugger(fParent.fDebuggers[i]).fCommunicationThread = nil);
               Writer.AddShort(',"consoleActor":"console');
@@ -443,8 +483,10 @@ begin
         end;
         Writer.CancelLastComma;
         Writer.AddShort(']}');
-      end else if request.type = 'listTabs' then begin
-        Writer.AddShort('{"from":"root","tabs":[],"selected":0}');
+      end else if {$IFDEF FPC}request.&type{$ELSE}request.type{$ENDIF} = 'listTabs' then begin
+        // VSCode FireFox Debug extension https://github.com/hbenl/vscode-firefox-debug
+        // require at last one tab
+        Writer.AddShort('{"from":"root","tabs":[{}],"selected":0}');
       end else
         exit;
       Send(Writer.Text);
@@ -453,7 +495,7 @@ begin
     end;
   end else begin
     if fDebugger = nil then begin
-      data := VariantToUTF8(request.to);
+      data := VariantToUTF8({$IFDEF FPC}request.&to{$ELSE}request.to{$ENDIF});
       debuggerIndex := GetInteger(@data[8]);
       fParent.fDebuggers.Safe.Lock;
       try
@@ -482,7 +524,11 @@ begin
             raise ESMException.Create('not Assigned(engine.doInteruptInOwnThread)');
           engine.doInteruptInOwnThread;
         end;
+        {$IFDEF SM52}
+        engine.cx.RequestInterruptCallback;
+        {$ELSE}
         engine.rt.RequestInterruptCallback;
+        {$ENDIF}
       end;
     end;
   end;
@@ -498,19 +544,22 @@ function TSMRemoteDebuggerCommunicationThread.sockRead(out packet: RawUTF8): boo
 const
   bufSize = 8;
 var
-  buf: string[bufSize];
+  buf: array [0..bufSize] of Byte;
   ch: PUTF8Char;
-  len, head: integer;
+  len, head, bytesToRead: integer;
 begin
-  Result := (fCommunicationSock <> nil) and fCommunicationSock.TrySockRecv(@buf[1], bufSize);
+  bytesToRead := bufSize;
+  FillChar(buf, Length(buf), #0);
+  Result := (fCommunicationSock <> nil) and fCommunicationSock.TrySockRecv(@buf[1], bytesToRead);
   if not Result then
     exit;
   ch := @buf[1];
-  len := GetNextItemInteger(ch, ':');
+  len := GetNextItemCardinal(ch, ':');
   SetLength(packet, len);
   head := bufSize - (ch - @buf[1]);
   Move(ch^, packet[1], head);
-  Result := fCommunicationSock.TrySockRecv(@packet[head + 1], len - head);
+  bytesToRead := len - head;
+  Result := fCommunicationSock.TrySockRecv(@packet[head + 1], bytesToRead);
 end;
 
 procedure TSMRemoteDebuggerCommunicationThread.sockWrite(const packet: RawUTF8);
@@ -528,10 +577,9 @@ begin
   fCommunicationSock.SockSendFlush;
 end;
 
-procedure TSMRemoteDebuggerCommunicationThread.startListening(socket: TSocket);
+procedure TSMRemoteDebuggerCommunicationThread.startListening(socket: TCrtSocket);
 begin
-  fCommunicationSock := TCrtSocket.Create(1000);
-  fCommunicationSock.OpenBind('', '', false, socket);
+  fCommunicationSock := socket;
   SynSMLog.Add.Log(sllCustom4, 'Accepted');
   Suspended := false;
 end;
@@ -577,6 +625,8 @@ begin
   fMessagesQueue := TRawUTF8ListHashedLocked.Create();
   fLogQueue := TRawUTF8ListHashedLocked.Create();
   fNameForDebug := aEng.nameForDebug;
+  fDebuggerName := 'synode_debPort_' + aParent.fPort;
+  fWebAppRootPath := aEng.webAppRootDir;
 
   InitializeDebuggerCompartment(aEng, aParent.FNeedPauseOnFirstStep);
 end;
@@ -617,7 +667,11 @@ begin
       end;
     end;
   finally
+  {$IFDEF SM52}
+    result := True;
+  {$ELSE}
     result := debugger.fOldInterruptCallback(cx);
+  {$ENDIF}
   end;
 end;
 
@@ -627,6 +681,7 @@ var
   cmpDbg: PJSCompartment;
   rval: jsval;
   dbgObject: PJSRootedObject;
+  res: Boolean;
 begin
   fMessagesQueue.Safe.Lock;
   try
@@ -646,15 +701,18 @@ begin
   try
     if not aEng.GlobalObjectDbg.ptr.GetProperty(cx, 'Debugger', rval) or rval.isVoid then begin
       aEng.PrivateDataForDebugger := self;
-      Assert(cx.InitStandardClasses(aEng.GlobalObjectDbg.ptr));
-      Assert(cx.DefineDebuggerObject(aEng.GlobalObjectDbg.ptr));
-      Assert(cx.InitModuleClasses(aEng.GlobalObjectDbg.ptr));
+      res := cx.InitStandardClasses(aEng.GlobalObjectDbg.ptr); Assert(res);
+      res := cx.DefineDebuggerObject(aEng.GlobalObjectDbg.ptr); Assert(res);
+      res := cx.InitModuleClasses(aEng.GlobalObjectDbg.ptr); Assert(res);
       aEng.DefineProcessBinding;
       aEng.DefineModuleLoader;
-      aEng.EvaluateModule('DevTools\Debugger.js');
+      aEng.EvaluateModule('DevTools/Debugger.js');
       dbgObject := cx.NewRootedObject(aEng.GlobalObjectDbg.ptr.GetPropValue(cx, 'process').asObject.GetPropValue(cx, 'dbg').asObject);
       try
-        aEng.CallObjectFunction(dbgObject, 'init', [SimpleVariantToJSval(cx, fIndex), SimpleVariantToJSval(cx, aNeedPauseOnFirstStep)]);
+        aEng.CallObjectFunction(dbgObject, 'init', [
+          SimpleVariantToJSval(cx, fIndex),
+          SimpleVariantToJSval(cx, aNeedPauseOnFirstStep)
+          ]);
       finally
         cx.FreeRootedObject(dbgObject);
       end;
@@ -662,8 +720,12 @@ begin
       if Assigned(aEng.Manager.OnDebuggerInit) then
         aEng.Manager.OnDebuggerInit(aEng);
 
+{$IFDEF SM52}
+      aEng.cx.AddInterruptCallback(doInterupt);
+{$ELSE}
       foldInterruptCallback := aEng.rt.InterruptCallback;
       aEng.rt.InterruptCallback := doInterupt;
+{$ENDIF}
     end;
   finally
     cx.LeaveCompartment(cmpDbg);
@@ -762,22 +824,65 @@ begin
   result := true;
 end;
 
+function debugger_debuggerName(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
+var
+  debugger: TSMDebugger;
+begin
+  debugger := TSMEngine(cx.PrivateData).PrivateDataForDebugger;
+  vp.rval := SimpleVariantToJSval(cx, debugger.fDebuggerName);
+  result := true;
+end;
+
+function debugger_nameForDebug(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
+var
+  debugger: TSMDebugger;
+begin
+  debugger := TSMEngine(cx.PrivateData).PrivateDataForDebugger;
+  vp.rval := SimpleVariantToJSval(cx, debugger.fNameForDebug);
+  result := true;
+end;
+
+function debugger_threadId(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
+var
+  debugger: TSMDebugger;
+begin
+  debugger := TSMEngine(cx.PrivateData).PrivateDataForDebugger;
+  { TODO : check that in multithread mode this field equal thread id with js context that we debug, otherwire replace with proper assigment }  
+  vp.rval := SimpleVariantToJSval(cx, ToUTF8(debugger.fSmThreadID));
+  // TSMDebugger(fParent.fDebuggers[i]).fSmThreadID
+  result := true;
+end;
+
+function debugger_webAppRootPath(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean; cdecl;
+var
+  debugger: TSMDebugger;
+begin
+  debugger := TSMEngine(cx.PrivateData).PrivateDataForDebugger;
+  vp.rval := SimpleVariantToJSval(cx, debugger.fWebAppRootPath);
+  result := true;
+end;
+
 function SyNodeBindingProc_debugger(const Engine: TSMEngine;
   const bindingNamespaceName: SynUnicode): jsval;
 var
   obj: PJSRootedObject;
   cx: PJSContext;
+  res: Boolean;
 begin
   cx := Engine.cx;
   obj := cx.NewRootedObject(cx.NewObject(nil));
   try
-    Assert(cx.WrapObject(Engine.GlobalObject.ptr));
+    res := cx.WrapObject(Engine.GlobalObject.ptr); Assert(res);
 
     obj.ptr.DefineFunction(cx, 'send', debugger_send, 1);
     obj.ptr.DefineFunction(cx, 'logError', debugger_err, 1);
     obj.ptr.DefineFunction(cx, 'read', debugger_read, 0);
     obj.ptr.DefineProperty(cx, 'listen', JSVAL_NULL, 0, debugger_listen);
     obj.ptr.DefineProperty(cx, 'paused', JSVAL_NULL, 0, debugger_isPaused, debugger_setPaused);
+    obj.ptr.DefineProperty(cx, 'debuggerName', JSVAL_NULL, 0, debugger_debuggerName);
+    obj.ptr.DefineProperty(cx, 'addonID', JSVAL_NULL, 0, debugger_nameForDebug);
+    obj.ptr.DefineProperty(cx, 'threadId', JSVAL_NULL, 0, debugger_threadId);
+    obj.ptr.DefineProperty(cx, 'webAppRootPath', JSVAL_NULL, 0, debugger_webAppRootPath);
 
     obj.ptr.DefineProperty(cx, 'global', Engine.GlobalObject.ptr.ToJSValue);
 
@@ -785,7 +890,6 @@ begin
   finally
     cx.FreeRootedObject(obj);
   end;
-
 end;
 
 initialization

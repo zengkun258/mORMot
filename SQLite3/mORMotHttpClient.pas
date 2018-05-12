@@ -6,7 +6,7 @@ unit mORMotHttpClient;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotHttpClient;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -189,6 +189,7 @@ type
     fHttps: boolean;
     fProxyName, fProxyByPass: AnsiString;
     fSendTimeout, fReceiveTimeout, fConnectTimeout: DWORD;
+    fConnectRetrySeconds: integer; // used by InternalCheckOpen
     fExtendedOptions: THttpRequestExtendedOptions;
     procedure SetCompression(Value: TSQLHttpCompressions);
     procedure SetKeepAliveMS(Value: cardinal);
@@ -216,7 +217,7 @@ type
     // - if port is not specified, aDefaultPort is used
     // - if root is not specified, aModel.Root is used
     constructor Create(const aServer: TSQLRestServerURIString; aModel: TSQLModel;
-      aDefaultPort: integer); reintroduce; overload; 
+      aDefaultPort: integer); reintroduce; overload;
     /// connnect to a LogView HTTP Server for remote logging
     // - will associate the EchoCustom callback of the log class to this server
     // - the aLogClass.Family will manage this TSQLHttpClientGeneric instance
@@ -229,6 +230,8 @@ type
     // the TSQLRestClientURI.SetUser() information, and Definition.DatabaseName
     // to store the extended options as an URL-encoded string
     procedure DefinitionTo(Definition: TSynConnectionDefinition); override;
+    /// returns 'Server:Port' current value
+    function HostName: AnsiString;
   published
     /// the Server IP address
     property Server: AnsiString read fServer;
@@ -251,6 +254,11 @@ type
     // using TSQLHttpClientWebSockets, leaving hcDeflate for AJAX or non mORMot
     // clients, and hcSynLZ if you expect to use http.sys with a mORMot client
     property Compression: TSQLHttpCompressions read fCompression write SetCompression;
+    /// how many seconds the client may try to connect after open socket failure
+    // - is disabled to 0 by default, but you may set some seconds here e.g. to
+    // let the server start properly, and let the client handle exceptions to
+    // wait 250ms and retry until the specified timeout is reached
+    property ConnectRetrySeconds: integer read fConnectRetrySeconds write fConnectRetrySeconds;
   end;
 
   TSQLHttpClientGenericClass = class of TSQLHttpClientGeneric;
@@ -322,7 +330,7 @@ type
     function WebSocketsUpgrade(const aWebSocketsEncryptionKey: RawUTF8;
       aWebSocketsAJAX: boolean=false; aWebSocketsCompression: boolean=true): RawUTF8;
     /// connect using a specified WebSockets protocol
-    // - this method would call WebSocketsUpgrade, then ServerTimeStampSynchronize
+    // - this method would call WebSocketsUpgrade, then ServerTimestampSynchronize
     // - it therefore expects SetUser() to have been previously called
     function WebSocketsConnect(const aWebSocketsEncryptionKey: RawUTF8;
       aWebSocketsAJAX: boolean=false; aWebSocketsCompression: boolean=true): RawUTF8;
@@ -330,8 +338,11 @@ type
     // - you could use its properties after upgrading the connection to WebSockets
     function WebSockets: THttpClientWebSockets;
     /// returns true if the connection is a running WebSockets
-    // - may be false even if fSocket<>nil, e.g. when gracefully disconnected  
+    // - may be false even if fSocket<>nil, e.g. when gracefully disconnected
     function WebSocketsConnected: boolean;
+    /// will set the HTTP header as expected by THttpClientWebSockets.Request to
+    // perform the Callback() query in wscNonBlockWithoutAnswer mode
+    procedure CallbackNonBlockingSetHeader(out Header: RawUTF8); override;
     /// this event will be executed just after the HTTP client has been
     // upgraded to the expected WebSockets protocol
     // - supplied Sender parameter will be this TSQLHttpClientWebsockets instance
@@ -352,6 +363,7 @@ type
   // WinHTTP or libcurl API
   // - not to be called directly, but via TSQLHttpClientWinINet or (even
   // better) TSQLHttpClientWinHTTP overridden classes under Windows
+  // - consider also calling NewSQLHttpClient() global function
   TSQLHttpClientRequest = class(TSQLHttpClientGeneric)
   protected
     fRequest: THttpRequest;
@@ -456,22 +468,61 @@ type
   {$endif USELIBCURL}
 
   {$ifdef ONLYUSEHTTPSOCKET}
-  /// HTTP/1.1 RESTful JSON deault mORMot Client class
+  /// HTTP/1.1 RESTful JSON default mORMot Client class
   // -  maps the raw socket implementation class
   TSQLHttpClient = TSQLHttpClientWinSock;
+  {$ifdef USELIBCURL}
+  TSQLHttpsClient = TSQLHttpClientCurl;
   {$else}
+  {$ifdef USEWININET}
+  TSQLHttpsClient = TSQLHttpClientWinHTTP;
+  {$else}
+  TSQLHttpsClient = TSQLHttpClientWinSock; // (Android) fallback to non-TLS class
+  {$endif USEWININET}
+  {$endif USELIBCURL}
+  {$else ONLYUSEHTTPSOCKET}
   /// HTTP/1.1 RESTful JSON default mORMot Client class
   // - under Windows, maps the TSQLHttpClientWinHTTP class
+  // - consider also calling NewSQLHttpClient() global function
   TSQLHttpClient = TSQLHttpClientWinHTTP;
+  /// HTTP/HTTPS RESTful JSON default mORMot Client class
+  // - under Windows, maps the TSQLHttpClientWinHTTP class, or TSQLHttpClientCurl
+  // under Linux
+  // - consider also calling NewSQLHttpClient() global function
+  TSQLHttpsClient = TSQLHttpClientWinHTTP;
   {$endif ONLYUSEHTTPSOCKET}
 
 var
-  /// a global hook variable, able to enhance WebSockets logging
-  // - checked by TSQLHttpClientWebsockets.WebSocketsConnect() 
+  /// a global hook variable, able to set WebSockets logging to full verbose
+  // - checked by TSQLHttpClientWebsockets.WebSocketsConnect()
   HttpClientFullWebSocketsLog: Boolean;
 
 
+/// creates an instance of the best TSQLHttpClientGeneric class, according to
+// a given parsed URI
+// - will return a TSQLHttpsClient or a TSQLHttpClientWinSock
+function NewSQLHttpClient(const aURI: TURI; aModel: TSQLModel; aOwnModel: boolean = true;
+  aWeakHttps: Boolean = false; const aProxyName: RawUTF8 = ''; const aProxyByPass: RawUTF8 = ''): TSQLHttpClientGeneric;
+
+
 implementation
+
+
+function NewSQLHttpClient(const aURI: TURI; aModel: TSQLModel; aOwnModel, aWeakHttps: boolean;
+  const aProxyName, aProxyByPass: RawUTF8): TSQLHttpClientGeneric;
+begin
+  if (aURI.Https or (aProxyName <> '')) and
+     TSQLHttpsClient.InheritsFrom(TSQLHttpClientRequest) then begin
+    result := TSQLHttpClientRequest(TSQLHttpsClient).Create(aURI.Server, aURI.Port, aModel,
+      aURI.Https, AnsiString(aProxyName), AnsiString(aProxyByPass));
+    if aWeakHttps then
+      (result as TSQLHttpClientRequest).IgnoreSSLCertificateErrors := true;
+  end
+  else
+    result := TSQLHttpClientWinSock.Create(aURI.Server, aURI.Port, aModel);
+  if aOwnModel then
+    aModel.Owner := result;
+end;
 
 
 { TSQLHttpClientGeneric }
@@ -480,9 +531,12 @@ procedure TSQLHttpClientGeneric.InternalURI(var Call: TSQLRestURIParams);
 var Head, Content, ContentType: RawUTF8;
     P, PBeg: PUTF8Char;
     res: Int64Rec;
-begin
 {$ifdef WITHLOG}
-  fLogClass.Enter(self);
+    log: ISynLog;
+begin
+  log := fLogClass.Enter('InternalURI %', [Call.Method], self);
+{$else}
+begin
 {$endif}
   if InternalCheckOpen then begin
     Head := Call.InHead;
@@ -490,7 +544,7 @@ begin
     ContentType := JSON_CONTENT_TYPE_VAR; // consider JSON by default
     P := pointer(Head);
     while P<>nil do begin
-      PBeg := GetNextLineBegin(P,P);
+      PBeg := P;
       if IdemPChar(PBeg,'CONTENT-TYPE:') then begin
         ContentType := GetNextLine(PBeg+14,P); // retrieve customized type
         if P=nil then // last entry in header
@@ -499,6 +553,7 @@ begin
         Head := trim(Head);
         break;
       end;
+      P := GotoNextLine(P);
     end;
     if Content<>'' then // always favor content type from binary
       ContentType := GetMimeContentTypeFromBuffer(pointer(Content),Length(Content),ContentType);
@@ -513,10 +568,10 @@ begin
     Call.OutHead := Head;
     Call.OutBody := Content;
   end else
-    Call.OutStatus := HTTP_NOTIMPLEMENTED; // 501 indicates not socket closed 
+    Call.OutStatus := HTTP_NOTIMPLEMENTED; // 501 indicates not socket closed
 {$ifdef WITHLOG}
   with Call do
-    fLogFamily.SynLog.Log(sllClient,'% % status=% len=% state=%',
+    log.Log(sllClient,'% % status=% len=% state=%',
       [method,url,OutStatus,length(OutBody),OutInternalState],self);
 {$endif}
 end;
@@ -621,21 +676,44 @@ begin
   Create(SockString(URI.Address),SockString(URI.Port),aModel);
 end;
 
+function TSQLHttpClientGeneric.HostName: AnsiString;
+begin
+  if fServer<>'' then
+    if fPort<>'' then
+      result := fServer+':'+fPort else
+      result := fServer else
+    result := '';
+end;
+
 
 { TSQLHttpClientWinSock }
 
 function TSQLHttpClientWinSock.InternalCheckOpen: boolean;
+var timeout: Int64;
 begin
   result := fSocket<>nil;
-  if result or (ioNoOpen in fInternalOpen) then
+  if result or (isDestroying in fInternalState) then
     exit;
   fSafe.Enter;
   try
-    if fSocket=nil then
-    try
+    if fSocket=nil then begin
       if fSocketClass=nil then
         fSocketClass := THttpClientSocket;
-      fSocket := fSocketClass.Open(fServer,fPort,cslTCP,fConnectTimeout);
+      timeout := GetTickCount64+fConnectRetrySeconds shl 10;
+      repeat
+        try
+          fSocket := fSocketClass.Open(fServer,fPort,cslTCP,fConnectTimeout);
+        except
+          on E: Exception do begin
+            FreeAndNil(fSocket);
+            if GetTickCount64>=timeout then
+              exit;
+            fLogClass.Add.Log(sllTrace, 'InternalCheckOpen: % -> wait and retry %s',
+              [E.ClassType, fConnectRetrySeconds], self);
+            sleep(250);
+          end;
+        end;
+      until fSocket<>nil;
       if fModel<>nil then
         fSocket.ProcessName := FormatUTF8('%/%',[fPort,fModel.Root]);
       if fSendTimeout>0 then
@@ -655,10 +733,8 @@ begin
       if hcDeflate in Compression then
         // standard (slower) AJAX/HTTP gzip compression
         fSocket.RegisterCompress(CompressGZip);
-      result := true;
-    except
-      FreeAndNil(fSocket);
     end;
+    result := true;
   finally
     fSafe.Leave;
   end;
@@ -692,7 +768,7 @@ end;
 function TSQLHttpClientWebsockets.InternalCheckOpen: boolean;
 begin
   result := WebSocketsConnected;
-  if result or (ioNoOpen in fInternalOpen) then
+  if result or (isDestroying in fInternalState) then
     exit; // already connected
   fSafe.Enter;
   try
@@ -739,8 +815,8 @@ begin
   end;
   if WebSockets=nil then
     raise EServiceException.CreateUTF8('Missing %.WebSocketsUpgrade() call',[self]);
-  body := FormatUTF8('{"%":%}',[Factory.InterfaceTypeInfo^.Name,FakeCallbackID]);
-  head := 'Sec-WebSocket-REST: NonBlocking';
+  FormatUTF8('{"%":%}',[Factory.InterfaceTypeInfo^.Name,FakeCallbackID],body);
+  CallbackNonBlockingSetHeader(head); // frames gathering + no wait
   result := CallBack(mPOST,'CacheFlush/_callback_',body,resp,nil,0,@head) in
     [HTTP_SUCCESS,HTTP_NOCONTENT];
 end;
@@ -769,6 +845,11 @@ begin
     (THttpClientWebSockets(fSocket).WebSockets.State<=wpsRun);
 end;
 
+procedure TSQLHttpClientWebsockets.CallbackNonBlockingSetHeader(out Header: RawUTF8);
+begin
+  Header := 'Sec-WebSocket-REST: NonBlocking'; // frames gathering + no wait
+end;
+
 function TSQLHttpClientWebsockets.WebSockets: THttpClientWebSockets;
 begin
   if fSocket=nil then
@@ -784,12 +865,15 @@ begin
 end;
 
 function TSQLHttpClientWebsockets.WebSocketsUpgrade(
-  const aWebSocketsEncryptionKey: RawUTF8; aWebSocketsAJAX,
+  const aWebSocketsEncryptionKey: RawUTF8; aWebSocketsAJAX: boolean;
   aWebSocketsCompression: boolean): RawUTF8;
 var sockets: THttpClientWebSockets;
-begin
 {$ifdef WITHLOG}
-  fLogFamily.SynLog.Enter(self);
+    log: ISynLog;
+begin
+  log := fLogFamily.SynLog.Enter(self, 'WebSocketsUpgrade');
+{$else}
+begin
 {$endif}
   sockets := WebSockets;
   if sockets=nil then
@@ -807,15 +891,14 @@ begin
       end;
   end;
 {$ifdef WITHLOG}
-  with fLogFamily.SynLog do
-    if result<>'' then
-      Log(sllWarning,'[%] error upgrading %',[result,sockets],self) else
-      Log(sllHTTP,'HTTP link upgraded to WebSockets using %',[sockets],self);
+  if result<>'' then
+    log.Log(sllWarning,'[%] error upgrading %',[result,sockets],self) else
+    log.Log(sllHTTP,'HTTP link upgraded to WebSockets using %',[sockets],self);
 {$endif}
 end;
 
 function TSQLHttpClientWebsockets.WebSocketsConnect(
-  const aWebSocketsEncryptionKey: RawUTF8; aWebSocketsAJAX,
+  const aWebSocketsEncryptionKey: RawUTF8; aWebSocketsAJAX: boolean;
   aWebSocketsCompression: boolean): RawUTF8;
 begin
   if WebSockets = nil then
@@ -825,8 +908,8 @@ begin
       WebSockets.Settings.SetFullLog;
     result := WebSocketsUpgrade(aWebSocketsEncryptionKey,aWebSocketsAJAX,aWebSocketsCompression);
     if result='' then
-      if not ServerTimeStampSynchronize then
-        result := 'ServerTimeStampSynchronize';
+      if not ServerTimestampSynchronize then
+        result := 'ServerTimestampSynchronize';
   end;
   if result<>'' then
     raise ECommunicationException.CreateUTF8('%.WebSocketsConnect failed on %:%/% -> %',
@@ -862,19 +945,33 @@ begin
 end;
 
 function TSQLHttpClientRequest.InternalCheckOpen: boolean;
+var timeout: Int64;
 begin
   result := fRequest<>nil;
-  if result or (ioNoOpen in fInternalOpen) then
+  if result or (isDestroying in fInternalState) then
     exit;
   fSafe.Enter;
   try
-    if fRequest=nil then
-    try
+    if fRequest=nil then begin
       InternalSetClass;
       if fRequestClass=nil then
         raise ECommunicationException.CreateUTF8('fRequestClass=nil for %',[self]);
-      fRequest := fRequestClass.Create(fServer,fPort,fHttps,
-        fProxyName,fProxyByPass,fConnectTimeout,fSendTimeout,fReceiveTimeout);
+      timeout := GetTickCount64+fConnectRetrySeconds shl 10;
+      repeat
+        try
+          fRequest := fRequestClass.Create(fServer,fPort,fHttps,
+            fProxyName,fProxyByPass,fConnectTimeout,fSendTimeout,fReceiveTimeout);
+        except
+          on E: Exception do begin
+            FreeAndNil(fRequest);
+            if GetTickCount64>=timeout then
+              exit;
+            fLogClass.Add.Log(sllTrace, 'InternalCheckOpen: % -> wait and retry %s',
+              [E.ClassType, fConnectRetrySeconds], self);
+            sleep(250);
+          end;
+        end;
+      until fRequest<>nil;
       fRequest.ExtendedOptions := fExtendedOptions;
       // note that first registered algo will be the prefered one
       if hcSynShaAes in Compression then
@@ -886,10 +983,8 @@ begin
       if hcDeflate in Compression then
         // standard (slower) AJAX/HTTP zip/deflate compression
         fRequest.RegisterCompress(CompressGZip);
-      result := true;
-    except
-      FreeAndNil(fRequest);
     end;
+    result := true;
   finally
     fSafe.Leave;
   end;
@@ -949,7 +1044,13 @@ end;
 
 {$endif USELIBCURL}
 
+procedure StatusCodeToErrorMsgInternal(Code: integer; var result: RawUTF8);
+begin
+  result := SynCrtSock.StatusCodeToReason(Code); // faster and more complete
+end;
+
 initialization
+  StatusCodeToErrorMessage := StatusCodeToErrorMsgInternal; // as in mORMotHttpServer
   TSQLHttpClientWinSock.RegisterClassNameForDefinition;
   TSQLHttpClientWebsockets.RegisterClassNameForDefinition;
 {$ifdef USELIBCURL}

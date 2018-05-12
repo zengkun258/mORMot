@@ -17,7 +17,10 @@ type
     FPool: TObjectListLocked;
     FWorkerCounter: integer;
     FIsInDestroyState: Boolean;
+{$IFDEF SM52}
+{$ELSE}
     function getOldErrorReporterForCurrentThread: JSErrorReporter;
+{$ENDIF}
     function getCurrentWorkerThreadIndex: integer;
     function getCurrentWorkerID: integer;
     function getWorkerThreadIndexByID(ID: Integer): integer;
@@ -33,7 +36,10 @@ type
     procedure EnqueueInMessageToThread(const mess: RawUTF8; aID: Integer);
     function DequeueInMessageFromCurrentThread(out mess: RawUTF8): Boolean;
     procedure TerminateThread(aID: Integer; aNeedCancelExecution: Boolean = false);
+{$IFDEF SM52}
+{$ELSE}
     property OldErrorReporterForCurrentThread: JSErrorReporter read getOldErrorReporterForCurrentThread;
+{$ENDIF}
     property DoInteruptInOwnThreadhandlerForCurThread: TThreadMethod read GetDoInteruptInOwnThreadhandlerForCurThread;
   end;
 
@@ -41,7 +47,9 @@ implementation
 
 uses
   SyNode,
+{$IFDEF MSWINDOWS}
   Windows,
+{$ENDIF}
   SysUtils;
 
 type
@@ -49,10 +57,14 @@ type
   private
     FEng: TSMEngine;
     fSMManager: TSMEngineManager;
+    fModuleObj: PJSRootedObject;
     FNeedCallInterrupt: boolean;
     fInMessages: TRawUTF8List;
     fOutMessages: TRawUTF8List;
+{$IFDEF SM52}
+{$ELSE}
     oldErrorReporter: JSErrorReporter;
+{$ENDIF}
     fID: Integer;
     FName: RawUTF8;
     FScript: SynUnicode;
@@ -64,8 +76,11 @@ type
     destructor Destroy; override;
   end;
 
+{$IFDEF SM52}
+{$ELSE}
 const
   LAST_ERROR_PROP_NAME = '__workerLastError';
+{$ENDIF}
 
 constructor TJSWorkerThread.Create(aSMManager: TSMEngineManager; workerName: RawUTF8; script: SynUnicode);
 begin
@@ -85,7 +100,10 @@ begin
   FreeAndNil(fInMessages);
   FreeAndNil(fOutMessages);
   if not Terminated then begin
+{$IFDEF SM52}
+{$ELSE}
     FEng.rt.ErrorReporter := oldErrorReporter;
+{$ENDIF}
     if FEng.cx.IsRunning then
       FEng.CancelExecution(false);
   end;
@@ -104,7 +122,7 @@ var
   in_argv: PjsvalVector;
   mes: RawUTF8;
 const
-  sInvalidCall = 'ussage: postMessage(message: *);';
+  sInvalidCall = 'usage: postMessage(message: *)';
 begin
   try
     in_argv := vp.argv;
@@ -142,6 +160,8 @@ begin
   end;
 end;
 
+{$IFDEF SM52}
+{$ELSE}
 procedure WorkerThreadErrorReporter(cx: PJSContext; _message: PCChar; report: PJSErrorReport); cdecl;
 var
   exc: jsval;
@@ -151,6 +171,7 @@ begin
   if not TSMEngine(cx.PrivateData).Manager.WorkersManager.FIsInDestroyState then
     TSMEngine(cx.PrivateData).Manager.WorkersManager.OldErrorReporterForCurrentThread(cx, _message, report);
 end;
+{$ENDIF}
 
 procedure TJSWorkerThread.Execute;
 var
@@ -168,13 +189,22 @@ begin
     FEng.GlobalObject.ptr.DefineFunction(cx, 'postMessage', fromWorker_postMessage, 1, JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT);
     FEng.GlobalObject.ptr.DefineFunction(cx, 'terminate', fromWorker_terminate, 0, JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT);
 
+{$IFDEF SM52}
+{$ELSE}
     oldErrorReporter := FEng.rt.ErrorReporter;
     FEng.rt.ErrorReporter := WorkerThreadErrorReporter;
+{$ENDIF}
 
     val.asInteger := ThreadID;
     FEng.GlobalObject.ptr.defineProperty(cx, 'threadID', val);
     try
       FEng.Evaluate(FScript, '<initialization>', 0, rval);
+      if rval.isObject then
+        fModuleObj := cx.NewRootedObject(rval.asObject)
+      else begin
+        Terminate;
+        exit;
+      end;
     except
       Terminate;
       exit;
@@ -182,28 +212,41 @@ begin
 
     while not Terminated do begin
       if FNeedCallInterrupt then begin
+{$IFDEF SM52}
+        FEng.cx.RequestInterruptCallback;
+        FEng.cx.CheckForInterrupt;
+{$ELSE}
         FEng.rt.InterruptCallback(cx);
+{$ENDIF}
         FNeedCallInterrupt := false;
       end;
 
       isEmpty := fSMManager.WorkersManager.FIsInDestroyState or not fSMManager.WorkersManager.DequeueInMessageFromCurrentThread(mess);
 
       if not isEmpty then begin
-
         val.asJson[cx] := mess;
         msg := cx.NewRootedValue(val);
         try
           try
             if not Terminated then begin
+            {$IFNDEF SM52}
               FEng.GlobalObject.ptr.SetProperty(cx, LAST_ERROR_PROP_NAME, JSVAL_VOID);
-              FEng.CallObjectFunction(FEng.GlobalObject, 'onmessage', [msg.ptr]);
+            {$ENDIF}
+              FEng.CallObjectFunction(fModuleObj, 'onmessage', [msg.ptr]);
             end;
           except
+            {$IFDEF SM52}
+            if not (JS_IsExceptionPending(cx) and JS_GetPendingException(cx, val)) then begin
+              val.setVoid;
+            end;
+            exc := cx.NewRootedValue(val);
+            {$ELSE}
             exc := cx.NewRootedValue(FEng.GlobalObject.ptr.GetPropValue(cx, LAST_ERROR_PROP_NAME));
+            {$ENDIF}
             try
               if not fSMManager.WorkersManager.FIsInDestroyState and not exc.ptr.isVoid then begin
                 try
-                  FEng.CallObjectFunction(FEng.GlobalObject, 'onerror', [msg.ptr, exc.ptr]);
+                  FEng.CallObjectFunction(fModuleObj, 'onerror', [msg.ptr, exc.ptr]);
                 except
                 end;
               end;
@@ -219,11 +262,13 @@ begin
     end;
     try
       if not fSMManager.WorkersManager.FIsInDestroyState then
-        FEng.CallObjectFunction(FEng.GlobalObject, 'onterminate', []);
+        FEng.CallObjectFunction(fModuleObj, 'onterminate', []);
     except
       ;
     end;
   finally
+    if fModuleObj <> nil then
+      cx.FreeRootedObject(fModuleObj);
     fSMManager.ReleaseCurrentThreadEngine;
     FEng := nil;
   end;
@@ -407,6 +452,8 @@ begin
   end;
 end;
 
+{$IFDEF SM52}
+{$ELSE}
 function TJSWorkersManager.getOldErrorReporterForCurrentThread: JSErrorReporter;
 var
   curThreadIndex: Integer;
@@ -425,6 +472,7 @@ begin
     FPool.Safe.UnLock;
   end;
 end;
+{$ENDIF}
 
 function TJSWorkersManager.getWorkerThreadIndexByID(ID: Integer): integer;
 var
@@ -475,19 +523,22 @@ begin
 end;
 
 /// create new worker thread. return worker ID
+// new thread require module. Module must export 3 function:
+// - onmessage
+// - onterminate
+// - onerror
 function worker_createThread(cx: PJSContext; argc: uintN; var vp: jsargRec): Boolean; cdecl;
 var
   in_argv: PjsvalVector;
-  scriptOnMessage, scriptOnTerminate, scriptOnError: SynUnicode;
-  fThread: TJSWorkerThread;
+  moduleStr: SynUnicode;
   workerName: RawUTF8;
-  params, obj: PJSObject;
+  params: PJSObject;
   IsInvalidCall: Boolean;
-  name, onmessage, onterminate, onerror: jsval;
+  name, module: jsval;
   val: jsval;
   FEng: TSMEngine;
 const
-  sInvalidCall = 'ussage: createThread({name: String, onmessage: String|Function[, onterminate: String|Function][, onerror: string|Function][, message: *]})';
+  sInvalidCall = 'usage: createThread({name: String, moduleName: string[, message: *]})';
 begin
   try
     in_argv := vp.argv;
@@ -503,60 +554,19 @@ begin
         IsInvalidCall := True;
 
       if not IsInvalidCall then begin
-        params.GetProperty(cx, 'onmessage', onmessage);
-        if onmessage.isString then
-          scriptOnMessage := onmessage.asJSString.ToSynUnicode(cx)
-        else if onmessage.isObject then begin
-          obj := onmessage.asObject;
-          if obj.isFunction(cx) then
-            scriptOnMessage := obj.DecompileFunction(cx, true).ToSynUnicode(cx)
-          else
-            IsInvalidCall := True;
-        end else
-          IsInvalidCall := True;
-      end;
-
-      if not IsInvalidCall then begin
-        params.GetProperty(cx, 'onterminate', onterminate);
-        if onterminate.isVoid then
-          scriptOnTerminate := 'function(){}'
-        else if onterminate.isString then
-          scriptOnTerminate := onterminate.asJSString.ToSynUnicode(cx)
-        else if onterminate.isObject then begin
-          obj := onterminate.asObject;
-          if obj.IsFunction(cx) then
-            scriptOnTerminate := obj.DecompileFunction(cx).ToSynUnicode(cx)
-          else
-            IsInvalidCall := True;
-        end else
-          IsInvalidCall := True;
-      end;
-
-      if not IsInvalidCall then begin
-        params.GetProperty(cx, 'onerror', onerror);
-        if onerror.isVoid then
-          scriptOnError := 'function(){}'
-        else if onerror.isString then
-          scriptOnError := onerror.asJSString.ToSynUnicode(cx)
-        else if onerror.isObject then begin
-          obj := onerror.asObject;
-          if obj.IsFunction(cx) then
-            scriptOnError := obj.DecompileFunction(cx).ToSynUnicode(cx)
-          else
-            IsInvalidCall := True;
-        end else
-          IsInvalidCall := True;
+        params.GetProperty(cx, 'moduleName', module);
+        if not module.isString then
+          IsInvalidCall := True
+        else
+          moduleStr := module.asJSString.ToSynUnicode(cx)
       end;
     end;
-
     if IsInvalidCall then
       raise ESMException.Create(sInvalidCall);
 
     FEng := TSMEngine(cx.PrivateData);
-
     val.asInteger := FEng.Manager.WorkersManager.Add(cx, workerName,
-      WideFormat('this.onmessage = %s;this.onterminate = %s;this.onerror = %s',
-      [scriptOnMessage, scriptOnTerminate, scriptOnError]));
+      'require("' + moduleStr + '")');
     vp.rval := val;
     Result := True;
   except
@@ -576,7 +586,7 @@ var
   threadID: Integer;
   mes: RawUTF8;
 const
-  sInvalidCall = 'ussage: postMessage(threadID: Number, message: String);';
+  sInvalidCall = 'usage: postMessage(threadID: Number, message: String);';
 begin
   try
     in_argv := vp.argv;
@@ -609,7 +619,7 @@ var
   threadID: Integer;
   mes: RawUTF8;
 const
-  sInvalidCall = 'ussage: getMessage(threadID: Number);';
+  sInvalidCall = 'usage: getMessage(threadID: Number);';
 begin
   try
     in_argv := vp.argv;
@@ -643,7 +653,7 @@ var
   in_argv: PjsvalVector;
   threadID: Integer;
 const
-  sInvalidCall = 'ussage: terminate(threadID: Number);';
+  sInvalidCall = 'usage: terminate(threadID: Number);';
 begin
   try
     in_argv := vp.argv;

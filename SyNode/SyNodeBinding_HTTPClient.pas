@@ -12,15 +12,13 @@ interface
 {$I Synopse.inc}
 {$I SyNode.inc}
 uses
-  Windows, SysUtils, SynCrtSock, SynCommons,
-  {$ifdef BRANCH_WIN_WEB_SOCKET}SynCrtCommons, {$endif}
-  SpiderMonkey;
+  SysUtils, SynCrtSock, SynCommons, SpiderMonkey;
 
 type
   {$M+}
   THTTPClient = class
   private
-    fClient: TWinHTTP;
+    fClient: THttpRequest;
     fInHeaders: RawUTF8;
     FMethod: RawUTF8;
     FWriter: TTextWriter;
@@ -121,7 +119,8 @@ begin
     else
       fReceiveTimeout := HTTP_DEFAULT_RECEIVETIMEOUT;
 
-    fClient := TWinHTTP.Create(aServer, aPort, aHttps, aProxyName, aProxyByPass, fConnectTimeout, fSendTimeout, fReceiveTimeout);
+    fClient := {$IFDEF MSWINDOWS}TWinHTTP{$ELSE}TCurlHTTP{$ENDIF}
+      .Create(aServer, aPort, aHttps, aProxyName, aProxyByPass, fConnectTimeout, fSendTimeout, fReceiveTimeout);
 
     if (argc > 3) and (in_argv[3].isBoolean)  then
       fClient.RegisterCompress(CompressGZip);
@@ -259,8 +258,6 @@ function SyNodeBindingProc_synode_http(const aEngine: TSMEngine; const bindingNa
 var
   obj: PJSRootedObject;
   cx: PJSContext;
-const
-  props = JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT;
 begin
   cx := aEngine.cx;
   obj := cx.NewRootedObject(cx.NewObject(nil));

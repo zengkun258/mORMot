@@ -6,7 +6,7 @@ unit SynDBVCL;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBVCL;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -369,6 +369,7 @@ function TSynDBSQLDataSet.PSExecuteStatement(const ASQL: string;
   AParams: TParams; ResultSet: Pointer): Integer;
 {$endif}
 var Stmt: ISQLDBStatement;
+    blob: TBlobData;
     p: integer;
 begin // only execute writes in current implementation
   if fConnection=nil then
@@ -378,7 +379,11 @@ begin // only execute writes in current implementation
     try
       if AParams<>nil then
         for p := 0 to AParams.Count-1 do
-          Stmt.BindVariant(p+1,AParams[p].Value,False);
+          if aParams[p].DataType = ftBlob then begin
+            blob := aParams[p].AsBlob;
+            Stmt.BindBlob(p+1,pointer(blob),length(blob));
+          end else
+            Stmt.BindVariant(p+1,AParams[p].Value,False);
       Stmt.ExecutePrepared;
       result := Stmt.UpdateCount;
       if result=0 then

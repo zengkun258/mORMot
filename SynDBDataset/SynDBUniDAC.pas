@@ -6,7 +6,7 @@ unit SynDBUniDAC;
 {
   This file is part of Synopse framework.
 
-  Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+  Synopse framework. Copyright (C) 2018 Arnaud Bouchez
   Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBUniDAC;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -212,7 +212,7 @@ begin
   fSpecificOptions := TStringList.Create;
   opt := pointer(options);
   while opt<>nil do begin
-    namevalue := GetNextItem(opt,';');
+    GetNextItem(opt,';',namevalue);
     if namevalue<>'' then
       fSpecificOptions.Add(UTF8ToString(namevalue));
   end;
@@ -445,8 +445,8 @@ begin
   if fDatabase=nil then
     raise ESQLDBUniDAC.CreateUTF8('%.Connect(%): Database=nil',
       [self,fProperties.ServerName]);
-  Log := SynDBLog.Enter(Self,pointer(FormatUTF8('Connect to ProviderName=% Database=% on Server=%',
-    [fDatabase.ProviderName,fDatabase.Database,fDatabase.Server])),true);
+  Log := SynDBLog.Enter('Connect to ProviderName=% Database=% on Server=%',
+    [fDatabase.ProviderName,fDatabase.Database,fDatabase.Server],self);
   try
     case fProperties.DBMS of
     dFirebird:

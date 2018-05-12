@@ -6,7 +6,7 @@ unit dddInfraApps;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit dddInfraApps;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -61,12 +61,12 @@ interface
 uses
   {$ifdef MSWINDOWS}
   Windows,
-  mORMotService, // for running the daemon as a regular Windows Service
   {$else}
   {$ifdef FPC}
   SynFPCLinux,
   {$endif}
   {$endif}
+  mORMotService, // for running the daemon as a regular Windows Service
   SysUtils,
   Classes,
   Variants,
@@ -92,6 +92,9 @@ type
   // - you should inherit from this class, then override the abstract NewDaemon
   // protected method to launch and return a IAdministratedDaemon instance
   {$M+}
+
+  { TDDDDaemon }
+
   TDDDDaemon = class
   protected
     fSettings: TDDDAdministratedDaemonSettings;
@@ -103,10 +106,8 @@ type
     function NewDaemon: TDDDAdministratedDaemon; virtual;
     /// returns some text to be supplied to the console for /help - '' by default
     function CustomHelp: string; virtual;
-    {$ifdef MSWINDOWS} // to support Windows Services
-    procedure DoStart(Sender: TService);
-    procedure DoStop(Sender: TService);
-    {$endif}
+    procedure DoStart{$ifdef MSWINDOWS}(Sender: TService=nil){$endif};
+    procedure DoStop{$ifdef MSWINDOWS}(Sender: TService=nil){$endif};
   public
     /// initialize the service/daemon application thanks to some information
     // - actual settings would inherit from TDDDAdministratedDaemonSettingsFile,
@@ -142,6 +143,13 @@ type
     procedure ExecuteCommandLine(ForceRun: boolean=false);
     /// start the daemon, until the instance is released
     procedure Execute;
+    /// wait for Daemon property to be set
+    // - Execute method should have been previously caleld
+    // - returns true if the daemon has been started in the specified time
+    function WaitStarted(TimeoutMS: integer=10000): boolean;
+    /// start the daemon and wait for Daemon property to be set
+    // - returns true if the daemon has been started in the specified time
+    function ExecuteAndWaitStarted(TimeoutMS: integer=10000): boolean;
     /// read-only access to the underlying daemon instance
     // - equals nil if the daemon is not started
     property Daemon: IAdministratedDaemon read fDaemon;
@@ -179,8 +187,6 @@ type
   TDDDRestDaemon = class(TDDDAdministratedRestDaemon, IAdministratedDaemon)
   protected
     fPreviousMonitorTix: Int64;
-    function Settings: TDDDAdministratedDaemonHttpSettings;
-      {$ifdef HASINLINE}inline;{$endif}
     function GetAdministrationHTTPServer: TSQLHttpServer;
       {$ifdef HASINLINE}inline;{$endif}
     // returns the current state from fRest.Stat() + system memory
@@ -206,12 +212,17 @@ type
   protected
     fHttpServer: TSQLHttpServer;
     fServicesLogRest: TSQLRest;
+    function Settings: TDDDAdministratedDaemonHttpSettings;
+      {$ifdef HASINLINE}inline;{$endif}
     // initialize HTTP Server into fHttpServer
     // (fRest should have been set by the overriden method)
     procedure InternalStart; override;
     // finalize HTTP Server and SOA log database
     procedure InternalStop; override;
   public
+    /// generate API documentation corresponding to REST SOA interfaces
+    procedure WrapperGenerate(const DestFile: TFileName;
+      const Template: TFileName = 'API.adoc.mustache');
     /// reference to the main HTTP server publishing this daemon Services
     // - may be nil outside a Start..Stop range
     property HttpServer: TSQLHttpServer read fHttpServer;
@@ -228,14 +239,17 @@ type
   EDDDRestClient = class(EDDDException);
 
   /// advanced parameters for TDDDRestClientSettings definition
-  TDDDRestClient = class(TSynPersistentWithPassword)
+  TDDDRestClientDefinition = class(TSynPersistentWithPassword)
   protected
     fRoot: RawUTF8;
+    fConnectRetrySeconds: integer;
   published
     /// the URI Root to be used for the REST Model
     property Root: RawUTF8 read fRoot write fRoot;
     /// the encrypted password to be used to connect with WebSockets
     property WebSocketsPassword: RawUTF8 read fPassWord write fPassWord;
+    /// how many seconds the client may try to connect after open socket failure
+    property ConnectRetrySeconds: integer read fConnectRetrySeconds write fConnectRetrySeconds;
   end;
 
   /// storage class for initializing an ORM/SOA REST Client class
@@ -246,14 +260,14 @@ type
   TDDDRestClientSettings = class(TSynAutoCreateFields)
   protected
     fORM: TSynConnectionDefinition;
-    fClient: TDDDRestClient;
+    fClient: TDDDRestClientDefinition;
     fTimeout: integer;
   public
     /// set the default values for Client.Root, ORM.ServerName,
     // Client.WebSocketsPassword and ORM.Password
     procedure SetDefaults(const Root, Port, WebSocketPassword, UserPassword: RawUTF8;
       const User: RawUTF8 = 'User'; const Server: RawUTF8 = 'localhost';
-      ForceSetCredentials: boolean = false);
+      ForceSetCredentials: boolean = false; ConnectRetrySeconds: integer = 0);
     /// is able to instantiate a Client REST instance for the stored definition
     // - Definition.Kind is expected to specify a TSQLRestClient class to be
     // instantiated, not a TSQLRestServer instance
@@ -278,7 +292,63 @@ type
     /// advanced connection options
     // - ORM.Password defines the authentication main password, and
     // Client.WebSocketsPassword is used for WebSockets binary encryption
-    property Client: TDDDRestClient read fClient;
+    property Client: TDDDRestClientDefinition read fClient;
+  end;
+
+  /// abstract client to connect to any daemon service via WebSockets
+  // - will monitor the connection, to allow automatic reconnection, with proper
+  // services resubscription 
+  TDDDRestClientWebSockets = class(TSQLHttpClientWebsockets)
+  protected
+    fApplicationName: RawUTF8;
+    fOwnedSettings: TDDDRestClientSettings;
+    fConnected: boolean;
+    fServicesRegistered: boolean;
+    fOnConnect, fOnDisconnect: TOnRestClientNotify;
+    // called after connection, before fOnConnect event - to register callbacks
+    procedure AfterConnection; virtual;
+    // called after disconnection, before fOnDisconnect event - unregister callbacks
+    procedure AfterDisconnection; virtual;
+    // call ClientDisconnect if HTTP_NOTIMPLEMENTED (i.e. websocket link broken)
+    procedure ClientFailed(Sender: TSQLRestClientURI; E: Exception;
+      Call: PSQLRestURIParams); virtual;
+    // notify AfterDisconnection + fOnDisconnect if needed
+    procedure ClientDisconnect;
+    procedure WebSocketsClosed(Sender: TObject); virtual;
+    // notify AfterDisconnection+fOnDisconnect if needed, then AfterConnection+fOnConnect
+    procedure ClientSetUser(Sender: TSQLRestClientURI); virtual;
+    // inherited classes should override those abstract methods
+    procedure DefineApplication; virtual; abstract;
+    procedure RegisterServices; virtual; abstract;
+    function CreateModel(aSettings: TDDDRestClientSettings): TSQLModel; virtual;
+  public
+    /// initialize the client instance with the supplied settings
+    constructor Create(aSettings: TDDDRestClientSettings;
+      aOnConnect: TOnRestClientNotify = nil;
+      aOnDisconnect: TOnRestClientNotify = nil); reintroduce; overload; virtual;
+    /// finalize the client instance
+    destructor Destroy; override;
+    /// returns the server version, using timestamp/info method-based service
+    property ApplicationVersion: RawUTF8 read GetSessionVersion;
+    /// reflects the current WebSockets connection state
+    property Connected: boolean read fConnected;
+    /// human-friendly application name, as set by overriden DefineApplication
+    property ApplicationName: RawUTF8 read fApplicationName;
+  end;
+
+  /// abstract client to connect to any daemon service via HTTP or HTTPS
+  // - defines a simple REST client, without connection tracking
+  TDDDRestClientHttp = class(TSQLHttpsClient)
+  protected
+    fApplicationName: RawUTF8;
+    // inherited classes should override those abstract methods
+    procedure DefineApplication; virtual; abstract;
+    procedure RegisterServices; virtual; abstract;
+  public
+    /// returns the server version, using timestamp/info method-based service
+    property ApplicationVersion: RawUTF8 read GetSessionVersion;
+    /// human-friendly application name, as set by overriden DefineApplication
+    property ApplicationName: RawUTF8 read fApplicationName;
   end;
 
 /// create a client safe asynchronous connection to a IAdministratedDaemon service
@@ -335,7 +405,8 @@ type
     // - e.g. TCrtSocket.LastLowSocketError value
     function LastError: RawUTF8;
     /// returns the number of bytes pending in the (mocked) socket
-    // - call e.g. TCrtSocket.SockInPending() method
+    // - call e.g. TCrtSocket.SockInPending() with aSocketForceCheck=true,
+    // to return bytes both in the instance memory buffer and the socket API
     function DataInPending(aTimeOut: integer): integer;
     /// get Length bytes from the (mocked) socket
     // - returns the number of bytes read into the Content buffer
@@ -374,6 +445,8 @@ type
     /// get information from TCrtSocket.LastLowSocketError
     function LastError: RawUTF8;
     /// call TCrtSocket.SockInPending() method
+    // - with aSocketForceCheck=true, to return bytes both in the instance
+    // memory buffer and the socket API
     function DataInPending(aTimeOut: integer): integer;
     /// call TCrtSocket.SockInRead() method
     function DataIn(Content: PAnsiChar; ContentLength: integer): integer;
@@ -521,8 +594,7 @@ type
     procedure ExecuteDisconnect;
     procedure ExecuteDisconnectAfterError;
     procedure ExecuteSocket;
-    function TrySend(const aFrame: RawByteString; ImmediateDisconnectAfterError:
-      boolean = true): Boolean; virtual;
+    function TrySend(const aFrame: RawByteString; ImmediateDisconnectAfterError: boolean = true): Boolean; virtual;
     // inherited classes could override those methods for process customization
     procedure InternalExecuteConnected; virtual;
     procedure InternalExecuteDisconnect; virtual;
@@ -603,6 +675,57 @@ function ToText(st: TDDDSocketThreadState): PShortString; overload;
 function ToText(exc: TDDDMockedSocketException): PShortString; overload;
 
 
+{ ----- Applications Securization }
+
+type
+  /// result codes of the ECCAuthorize() function
+  TECCAuthorize = (eaSuccess, eaInvalidSecret, eaMissingUnlockFile, 
+    eaInvalidUnlockFile, eaInvalidJson);
+
+/// any sensitive, or licensed program, could call this method to check for
+// authorized execution for a given user on a given computer, using very secure
+// asymmetric ECC cryptography
+// - applock.public/.private keys pair should have been generated, applock.public
+// stored as aAppLockPublic64 in the executables, and applock.private kept secret
+// - will search for encrypted authorization in a local user@host.unlock file
+// - if no user@host.unlock file is found, will create local user@host.public
+// and user@host.secret files and return eaMissingUnlockFile: user should then send
+// user@host.public to the product support to receive its user@host.unlock file
+// (a dedicated UI may be developped, or an uncrypted email can be used for
+// transfer with the support team, thanks to asymmetric cryptography)
+// - local user@host.secret file is encrypted via DPAPI/CryptDataForCurrentUser
+// for the specific computer and user (to avoid .unlock reuse on another PC)
+// - support team should create a user@host.json file matching aContent: TObject
+// published properties, containing all application-specific settings and
+// authorization scope; then it could create the unlock file using e.g. an
+// unlock.bat file running the ECC tool over secret applock.private keys:
+// $ @echo off
+// $ echo Usage:  unlock user@host
+// $ echo.
+// $ ecc sign -file %1.json -auth applock -pass applockprivatepassword -rounds 60000
+// $ ecc crypt -file %1.json -out %1.unlock -auth %1 -saltpass decryptsalt -saltrounds 10000
+// $ del %1.json.sign
+// - returns eaInvalidUnlockFile if the local user@host.unlock file is not
+// correctly signed and encrypted for this user (e.g. corrupted or deprecated)
+// - eaInvalidJson will indicate some error in the .json created by support team,
+// i.e. if it does not match aContent: TObject published properties
+// - eaSuccess should let the application execute, on the returned scope
+// - returns eaSuccess if a local user@host.unlock file has been successfully
+// decrypted and validated (using ECDSA over aAppLockPublic64) and successfully
+// unserialized from JSON into aContent object instance
+// - user@host.* files are searched in the executable folder if aSearchFolder='',
+// but you may specify a custom location, e.g. use ECCKeyFileFolder
+// - will use the supplied parameters to restrict this authorization to
+// a specific product, using dedicated applock.public/.private keys pair
+// - aSecretInfo^ could be set to retrieve the user@host.secret information
+// (e.g. validity dates), and aLocalFile^ the'<fullpath>user@host' file prefix 
+function ECCAuthorize(aContent: TObject; aSecretDays: integer; const aSecretPass,
+  aDPAPI, aDecryptSalt, aAppLockPublic64: RawUTF8; const aSearchFolder: TFileName = '';
+  aSecretInfo: PECCCertificateSigned = nil; aLocalFile: PFileName = nil): TECCAuthorize;
+
+function ToText(auth: TECCAuthorize): PShortString; overload;
+
+
 implementation
 
 { ----- Implements Service/Daemon Applications }
@@ -640,17 +763,18 @@ begin
   inherited;
 end;
 
-{$ifdef MSWINDOWS} // to support Windows Services
-
-procedure TDDDDaemon.DoStart(Sender: TService);
+procedure TDDDDaemon.DoStart{$ifdef MSWINDOWS}(Sender: TService){$endif};
 var log: ISynLog;
     res: TCQRSResult;
 begin
   {$ifdef WITHLOG}
-  log := SQLite3Log.Enter(self);
+  {$ifdef MSWINDOWS}
+  SQLite3Log.Add.LogThreadName('Service Start Handler', true);
+  {$endif}
+  log := SQLite3Log.Enter(self, 'DoStart');
   with ExeVersion do
     log.Log(sllNewRun, 'Daemon Start svc=% ver=% usr=%',
-      [fSettings.ServiceName, Version.Detailed, User], self);
+      [fSettings.ServiceName, Version.Detailed, LowerCase(User)], self);
   {$endif}
   fDaemon := NewDaemon;
   res := fDaemon.Start;
@@ -658,21 +782,25 @@ begin
     log.Log(sllTrace, 'fDaemon.Start=%', [ToText(res)^], self);
 end;
 
-procedure TDDDDaemon.DoStop(Sender: TService);
+procedure TDDDDaemon.DoStop{$ifdef MSWINDOWS}(Sender: TService){$endif};
+{$ifdef WITHLOG}
+var log: ISynLog;
 begin
-  {$ifdef WITHLOG}
-  SQLite3Log.Enter(self).
-    Log(sllNewRun, 'Daemon Stop svc=% ver=% usr=%',
-      [fSettings.ServiceName, ExeVersion.Version.Detailed, ExeVersion.User], self);
+  {$ifdef MSWINDOWS}
+  SQLite3Log.Add.LogThreadName('Service Stop Handler', true);
   {$endif}
+  log := SQLite3Log.Enter(self, 'DoStop');
+  log.Log(sllNewRun, 'Daemon Stop svc=% ver=% usr=%', [fSettings.ServiceName,
+    ExeVersion.Version.Detailed, LowerCase(ExeVersion.User)], self);
+{$else}
+begin
+{$endif}
   fDaemon := nil; // will stop the daemon
 end;
 
-{$endif MSWINDOWS} // to support Windows Services
-
 function TDDDDaemon.NewDaemon: TDDDAdministratedDaemon;
 begin
-  if Assigned(fSettings) then 
+  if Assigned(fSettings) then begin
     if fSettings.Log.LowLevelWebSocketsFrames then begin
       {$ifdef WITHLOG}
       WebSocketLog := SQLite3Log;
@@ -680,24 +808,52 @@ begin
       HttpServerFullWebSocketsLog := true;
       HttpClientFullWebSocketsLog := true;
     end;
-  {$ifdef MSWINDOWS} // Windows 7+
-  SetAppUserModelID(fSettings.AppUserModelID);
-  {$endif}
+    SQLite3Log.Family.AutoFlushTimeOut := fSettings.Log.AutoFlushTimeOut; // after /fork
+    {$ifdef MSWINDOWS} // Windows 7+
+    SetAppUserModelID(fSettings.AppUserModelID);
+    {$endif}
+  end;
   result := nil;
 end;
 
 procedure TDDDDaemon.Execute;
+{$ifdef WITHLOG}
+var log: ISynLog;
 begin
-  {$ifdef WITHLOG}
-  SQLite3Log.Enter(self);
-  {$endif}
+  log := SQLite3Log.Enter(self, 'Execute');
+{$else}
+begin
+{$endif}
   fDaemon := NewDaemon;
   fDaemon.Start;
 end;
 
+function TDDDDaemon.WaitStarted(TimeoutMS: integer): boolean;
+var
+  tix: Int64;
+begin
+  tix := GetTickCount64 + TimeoutMS;
+  repeat
+    sleep(50);
+    result := Daemon <> nil;
+  until result or (GetTickCount64 > tix);
+end;
+
+function TDDDDaemon.ExecuteAndWaitStarted(TimeoutMS: integer): boolean;
+begin
+  try
+    Execute;
+    result := WaitStarted(TimeoutMS);
+  except
+    result := false;
+  end;
+end;
+
 type
-  TExecuteCommandLineCmd = (cNone, cInstall, cUninstall, cStart, cStop, cState,
-    cVersion, cVerbose, cHelp, cHardenPasswords, cPlainPasswords, cConsole, cDaemon);
+  TExecuteCommandLineCmd = (
+    cNone, cInstall, cUninstall, cStart, cStop, cState,
+    cVersion, cVerbose, cHelp, cHardenPasswords, cPlainPasswords,
+    cConsole, cDaemon, cRun, cFork, cKill);
 
 procedure TDDDDaemon.ExecuteCommandLine(ForceRun: boolean);
 var
@@ -738,7 +894,7 @@ var
       modified := false;
       if doc.Count > 0 then
         while B <> nil do begin
-          appsec := GetNextItem(B, '@');
+          GetNextItem(B, '@', appsec);
           v := doc.GetPVariantByPath(GetNextItem(B));
           if v = nil then
             continue;
@@ -755,7 +911,7 @@ var
             else
               exit;
             end;
-            FillZero(RawByteString(plain));
+            FillZero(plain);
             if new <> pass then begin
               RawUTF8ToVariant(new, v^); // replace
               modified := true;
@@ -809,15 +965,17 @@ var
   var spaces: string;
   begin
     writeln('Try with one of the switches:');
-    writeln({$ifdef MSWINDOWS}' '{$else}' ./'{$endif}, ExeVersion.ProgramName,
+    writeln({$ifdef MSWINDOWS}'   '{$else}' ./'{$endif}, ExeVersion.ProgramName,
       ' /console -c /verbose /daemon -d /help -h /version');
-    spaces := StringOfChar(' ', length(ExeVersion.ProgramName) + 2);
+    spaces := StringOfChar(' ', length(ExeVersion.ProgramName) + 4);
     {$ifdef MSWINDOWS}
     writeln(spaces, '/install /uninstall /start /stop /state');
+    {$else}
+    writeln(spaces, '/run -r /fork -f /kill -k');
     {$endif}
     if passwords <> '' then
       writeln(spaces, '/hardenpasswords /plainpasswords');
-    writeln(CustomHelp);
+    writeln(spaces, CustomHelp);
   end;
 
 begin
@@ -848,13 +1006,19 @@ begin
     if (param = '') or not (param[1] in ['/', '-']) then
       cmd := cNone
     else
-      case param[2] of
-        'c', 'C':
+      case NormToUpper[param[2]] of
+        'C':
           cmd := cConsole;
-        'd', 'D':
+        'D':
           cmd := cDaemon;
+        'R':
+          cmd := cRun;
+        'F':
+          cmd := cFork;
+        'K':
+          cmd := cKill;
       else
-        byte(cmd) := 1 + IdemPCharArray(@param[2],
+        byte(cmd) := ord(cInstall) + IdemPCharArray(@param[2],
           ['INST', 'UNINST', 'START', 'STOP', 'STAT', 'VERS', 'VERB', 'HELP',
            'HARDEN', 'PLAIN']);
       end;
@@ -880,6 +1044,8 @@ begin
             cVerbose: // leave as in settings for -c (cConsole)
               SQLite3Log.Family.EchoToConsole := LOG_VERBOSE;
           end;
+          SQLite3Log.Add.Log(sllNewRun, 'Start % /% %', [fSettings.ServiceName,cmdText,
+            ExeVersion.Version.DetailedOrVoid], self);
           {$endif}
           daemon := NewDaemon;
           try
@@ -895,6 +1061,7 @@ begin
             {$endif}
             daemon.Execute(cmd = cDaemon);
           finally
+            SQLite3Log.Add.Log(sllNewRun, 'Stop /%', [cmdText], self);
             fDaemon := nil; // will stop the daemon
           end;
         end;
@@ -906,9 +1073,8 @@ begin
           TextColor(ccLightRed);
           writeln('No "passwords" resource bound to ', ExeVersion.ProgramFullSpec);
         end;
-    else
     {$ifdef MSWINDOWS} // implement the daemon as a Windows Service
-      with fSettings do
+    else with fSettings do
         if ServiceName = '' then
           if cmd = cNone then
             Syntax
@@ -972,12 +1138,21 @@ begin
             end;
           end;
     {$else}
+    cRun, cFork:
+      RunUntilSigTerminated(self, (cmd=cFork), DoStart, DoStop
+        {$ifdef WITHLOG},SQLite3Log.Add, fSettings.ServiceName{$endif});
+    cKill:
+      if not RunUntilSigTerminatedForkKill then
+        raise EServiceException.Create('No forked process found to be killed');
+    else
       Syntax;
     {$endif MSWINDOWS}
     end;
   except
-    on E: Exception do
+    on E: Exception do begin
       ConsoleShowFatalException(E);
+      ExitCode := 1; // indicates error
+    end;
   end;
   TextColor(ccLightGray);
   ioresult;
@@ -1048,17 +1223,12 @@ end;
 function TDDDRestDaemon.InternalRetrieveState(var Status: variant): boolean;
 begin
   if fRest <> nil then begin
-    Status := _ObjFast(['Rest', fRest.FullStatsAsDocVariant,
+    Status := _ObjFast(['Rest', fRest.StatsAsDocVariant,
       'SystemMemory', TSynMonitorMemory.ToVariant]);
     result := true;
   end
   else
     result := false;
-end;
-
-function TDDDRestDaemon.Settings: TDDDAdministratedDaemonHttpSettings;
-begin
-  result := TDDDAdministratedDaemonHttpSettings(fInternalSettings);
 end;
 
 procedure TDDDRestDaemon.SubscribeLog(const Levels: TSynLogInfos;
@@ -1070,6 +1240,11 @@ end;
 
 
 { TDDDRestHttpDaemon }
+
+function TDDDRestHttpDaemon.Settings: TDDDAdministratedDaemonHttpSettings;
+begin
+  result := TDDDAdministratedDaemonHttpSettings(fInternalSettings);
+end;
 
 procedure TDDDRestHttpDaemon.InternalStart;
 begin
@@ -1083,14 +1258,20 @@ begin
     if Assigned(fRest) then
       fRest.Shutdown; // no incoming TSQLRestServer.URI allowed from now on
     FreeAndNil(fHttpServer);
+    FreeAndNil(fServicesLogRest);
   finally
     inherited InternalStop; // FreeAndNil(fRest)
-    FreeAndNil(fServicesLogRest);
   end;
 end;
 
 
 { ----- Implements Thread Processing to access a TCP server }
+
+procedure TDDDRestHttpDaemon.WrapperGenerate(const DestFile, Template: TFileName);
+begin
+  Settings.Rest.WrapperGenerate(Rest, GetInteger(pointer(HttpServer.Port)), DestFile, Template);
+end;
+
 
 { TDDDSocketThreadMonitoring }
 
@@ -1150,10 +1331,13 @@ begin
 end;
 
 procedure TDDDSocketThread.ExecuteConnect;
+{$ifdef WITHLOG}
+var log: ISynLog;
 begin
-  {$ifdef WITHLOG}
-  FLog.Enter('ExecuteConnect %:%',[fHost,fPort],self);
-  {$endif}
+  log := FLog.Enter('ExecuteConnect %:%',[fHost,fPort],self);
+{$else}
+begin
+{$endif}
   if fSocket <> nil then
     raise EDDDInfraException.CreateUTF8('%.ExecuteConnect: fSocket<>nil', [self]);
   if fMonitoring.State <> tpsDisconnected then
@@ -1161,22 +1345,25 @@ begin
       [self, ToText(fMonitoring.State)^]);
   fMonitoring.State := tpsConnecting;
   try
+    if fSettings.SocketBufferBytes <= 0 then
+      fSettings.SocketBufferBytes := 32768;
     if Assigned(fSettings.OnIDDDSocketThreadCreate) then
       fSettings.OnIDDDSocketThreadCreate(self, fSocket)
     else
-      fSocket := TDDDSynCrtSocket.Create(self, fHost, fPort, fSettings.SocketTimeout, 32768);
+      fSocket := TDDDSynCrtSocket.Create(self, fHost, fPort,
+        fSettings.SocketTimeout, fSettings.SocketBufferBytes);
     fSocket.Connect;
     fMonitoring.State := tpsConnected; // to be done ASAP to allow sending
     InternalExecuteConnected;
     {$ifdef WITHLOG}
-    FLog.Log(sllTrace, 'ExecuteConnect: Connected via Socket % - %',
+    log.Log(sllTrace, 'ExecuteConnect: Connected via Socket % - %',
       [fSocket.Identifier, fMonitoring], self);
     {$endif}
   except
     on E: Exception do begin
       fMonitoring.ProcessException(E);
       {$ifdef WITHLOG}
-      FLog.Log(sllTrace, 'ExecuteConnect: Impossible to Connect to %:% (%) %',
+      log.Log(sllTrace, 'ExecuteConnect: Impossible to Connect to %:% (%) %',
         [Host, Port, E.ClassType, fMonitoring], self);
       {$endif}
       fSocket := nil;
@@ -1189,19 +1376,22 @@ begin
     else if fSettings.ConnectionAttemptsInterval > 0 then // on error, retry
       if SleepOrTerminated(fSettings.ConnectionAttemptsInterval * 1000) then
       {$ifdef WITHLOG}
-        FLog.Log(sllTrace, 'ExecuteConnect: thread terminated', self)
+        log.Log(sllTrace, 'ExecuteConnect: thread terminated', self)
       else
-        FLog.Log(sllTrace, 'ExecuteConnect: wait finished -> retry connect', self)
+        log.Log(sllTrace, 'ExecuteConnect: wait finished -> retry connect', self)
       {$endif};
 end;
 
 procedure TDDDSocketThread.ExecuteDisconnect;
 var
   info: RawUTF8;
+{$ifdef WITHLOG}
+  log: ISynLog;
 begin
-  {$ifdef WITHLOG}
-  FLog.Enter('ExecuteDisconnect %:%',[fHost,fPort],self);
-  {$endif}
+  log := FLog.Enter('ExecuteDisconnect %:%',[fHost,fPort],self);
+{$else}
+begin
+{$endif}
   try
     fSafe.Lock;
     try
@@ -1217,7 +1407,7 @@ begin
         fSocket := nil;
       end;
       {$ifdef WITHLOG}
-      FLog.Log(sllTrace, 'Socket % disconnected', [info], self);
+      log.Log(sllTrace, 'Socket % disconnected', [info], self);
       {$endif}
       InternalLogMonitoring;
     finally
@@ -1227,7 +1417,7 @@ begin
     on E: Exception do begin
       fMonitoring.ProcessException(E);
       {$ifdef WITHLOG}
-      FLog.Log(sllTrace, 'Socket disconnection error (%)', [E.ClassType], self);
+      log.Log(sllTrace, 'Socket disconnection error (%)', [E.ClassType], self);
       {$endif}
     end;
   end;
@@ -1252,20 +1442,23 @@ var
 begin
   if Terminated or fSocketDisable then
     exit;
-  pending := fSocket.DataInPending(fSettings.SocketLoopPeriod);
-  if Terminated or (pending = 0) then
-    exit;
-  if pending < 0 then begin
-    ExecuteDisconnectAfterError;
-    exit;
+  if (fSettings.SocketMaxBufferBytes = 0) or
+     (length(FSocketInputBuffer) < fSettings.SocketMaxBufferBytes) then begin
+    pending := fSocket.DataInPending(fSettings.SocketLoopPeriod);
+    if Terminated or (pending = 0) then
+      exit;
+    if pending < 0 then begin
+      ExecuteDisconnectAfterError;
+      exit;
+    end;
+    len := length(FSocketInputBuffer);
+    SetLength(FSocketInputBuffer, len + pending);
+    if fSocket.DataIn(@PByteArray(FSocketInputBuffer)[len], pending) <> pending then begin
+      ExecuteDisconnectAfterError;
+      exit;
+    end;
+    FMonitoring.Server.AddSize(pending, 0);
   end;
-  len := length(FSocketInputBuffer);
-  SetLength(FSocketInputBuffer, len + pending);
-  if fSocket.DataIn(@PByteArray(FSocketInputBuffer)[len], pending) <> pending then begin
-    ExecuteDisconnectAfterError;
-    exit;
-  end;
-  FMonitoring.Server.AddSize(pending, 0);
   InternalExecuteSocket;
 end;
 
@@ -1338,9 +1531,10 @@ begin
     fSocketDisable := true;
     fRest.LogClass.Add.Log(sllDebug, 'Shutdown: % will stop any communication ' +
       'with %:%', [ClassType, fHost, fPort], self);
-    if andTerminate then begin
+    if andTerminate and not Terminated then begin
       sleep(100);
       Terminate;
+      WaitFor;
     end;
   end;
 end;
@@ -1353,7 +1547,7 @@ begin
     CancelLastChar('}');
     if fRest.InheritsFrom(TSQLRestServer) then begin
       AddShort(',"Rest":');
-      AddNoJSONEscapeUTF8(TSQLRestServer(fRest).FullStatsAsJson);
+      AddNoJSONEscapeUTF8(TSQLRestServer(fRest).StatsAsJson);
     end;
     Add(',"Version":"%","DateTime":"%"}',
       [ExeVersion.Version.Detailed, NowUTCToString(True, 'T')]);
@@ -1373,11 +1567,14 @@ begin
     exit;
   end;
   fSafe.Lock;
-  result := (aFrame <> '') and (fSocket <> nil) and
-    (fMonitoring.State = tpsConnected) and not fShouldDisconnect;
-  if result then
-    tmpSock := fSocket;
-  fSafe.UnLock;
+  try
+    result := (aFrame <> '') and (fSocket <> nil) and
+      (fMonitoring.State = tpsConnected) and not fShouldDisconnect;
+    if result then
+      tmpSock := fSocket;
+  finally
+    fSafe.UnLock;
+  end;
   if not result then
     exit;
   result := tmpSock.DataOut(pointer(aFrame), length(aFrame));
@@ -1387,8 +1584,11 @@ begin
     ExecuteDisconnectAfterError
   else begin
     fSafe.Lock;
-    fShouldDisconnect := true; // notify for InternalExecuteIdle
-    fSafe.UnLock;
+    try
+      fShouldDisconnect := true; // notify for InternalExecuteIdle
+    finally
+      fSafe.UnLock;
+    end;
   end;
 end;
 
@@ -1406,7 +1606,7 @@ begin
   if aInternalBufferSize < 512 then
     aInternalBufferSize := 512;
   fInternalBufferSize := aInternalBufferSize;
-  fOutput.Init;
+  fOutput.Init; // uses two locks to avoid race condition on multi-thread
 end;
 
 destructor TDDDSynCrtSocket.Destroy;
@@ -1436,7 +1636,7 @@ function TDDDSynCrtSocket.DataInPending(aTimeOut: integer): integer;
 begin
   fSafe.Lock;
   try
-    result := fSocket.SockInPending(aTimeOut);
+    result := fSocket.SockInPending(aTimeOut,true); // aSocketForceCheck=true
   finally
     fSafe.UnLock;
   end;
@@ -1665,15 +1865,21 @@ end;
 function TDDDMockedSocket.GetPendingInBytes: integer;
 begin
   fSafe.Lock;
-  result := Length(fInput);
-  fSafe.UnLock;
+  try
+    result := Length(fInput);
+  finally
+    fSafe.UnLock;
+  end;
 end;
 
 function TDDDMockedSocket.GetPendingOutBytes: integer;
 begin
   fSafe.Lock;
-  result := Length(fOutput);
-  fSafe.UnLock;
+  try
+    result := Length(fOutput);
+  finally
+    fSafe.UnLock;
+  end;
 end;
 
 function TDDDMockedSocket.Handle: integer;
@@ -1716,7 +1922,7 @@ begin
       pass := fClient.PasswordPlain;
       if pass <> '' then
         (result as TSQLHttpClientWebsockets).WebSocketsConnect(pass)
-      else if not result.ServerTimeStampSynchronize then
+      else if not result.ServerTimestampSynchronize then
         raise EDDDRestClient.CreateUTF8('%.Create: HTTP access failure on %/%',
           [self, ORM.ServerName, aModel.Root]);
       result.OnAuthentificationFailed := OnAuthentificationFailed;
@@ -1749,7 +1955,8 @@ begin
 end;
 
 procedure TDDDRestClientSettings.SetDefaults(const Root, Port, WebSocketPassword,
-  UserPassword, User, Server: RawUTF8; ForceSetCredentials: boolean);
+  UserPassword, User, Server: RawUTF8; ForceSetCredentials: boolean;
+  ConnectRetrySeconds: integer);
 begin
   if fClient.Root = '' then
     fClient.Root := Root;
@@ -1767,6 +1974,7 @@ begin
           fORM.ServerName := Server;
     if fClient.WebSocketsPassword = '' then
       fClient.WebSocketsPassword := WebSocketPassword;
+    fClient.ConnectRetrySeconds := ConnectRetrySeconds;
     if UserPassword <> '' then begin
       fORM.User := User;
       fORM.PasswordPlain := UserPassword;
@@ -1864,7 +2072,7 @@ var
 begin
   CqrsBeginMethod(qaNone, result);
   if (fProxy <> nil) or (fProxyClient <> nil) then begin
-    CqrsSetResult(cqrsAlreadyExists);
+    CqrsSetResult(cqrsAlreadyExists,result);
     exit;
   end;
   def := TDDDRestClientSettings.Create;
@@ -1872,7 +2080,7 @@ begin
     JSONToObject(def, pointer(VariantSaveJSON(aDDDRestClientSettings)), valid);
     if not valid then begin
       CqrsSetResultMsg(cqrsBadRequest, '%.StartProxy(%): invalid def', [self,
-        aDDDRestClientSettings]);
+        aDDDRestClientSettings],result);
       exit;
     end;
     try
@@ -1880,12 +2088,12 @@ begin
       if not fProxyClient.Services.Resolve(IAdministratedDaemon, fProxy) then
         raise EDDDRestClient.CreateUTF8('%.StartProxy(%): IAdministratedDaemon not supported',
           [self, aDDDRestClientSettings]);
-      CqrsSetResult(cqrsSuccess);
+      CqrsSetResult(cqrsSuccess,result);
     except
       on E: Exception do begin
         fProxy := nil;
         FreeAndNil(fProxyClient);
-        CqrsSetResult(E);
+        CqrsSetResult(E,result);
       end;
     end;
   finally
@@ -1957,12 +2165,240 @@ begin
         result.AdministrationServer, AuthHttp);
 end;
 
+
+{ ----- Applications Securization }
+
+function ToText(auth: TECCAuthorize): PShortString;
+begin
+  result := GetEnumName(TypeInfo(TECCAuthorize), ord(auth));
+end;
+
+function ECCAuthorize(aContent: TObject; aSecretDays: integer; const aSecretPass,
+ aDPAPI, aDecryptSalt, aAppLockPublic64: RawUTF8; const aSearchFolder: TFileName;
+  aSecretInfo: PECCCertificateSigned; aLocalFile: PFileName): TECCAuthorize;
+var
+  fileroot, fileunlock, filesecret, filepublic: TFileName;
+  priv, new: TECCCertificateSecret;
+  auth: TECCCertificate;
+  signature: TECCSignatureCertifiedContent;
+  unlock, secret, temp, json: RawByteString;
+  decrypt: TECCDecrypt;
+  hash: THash256;
+  valid: TECCValidity;
+  issuer: TECCCertificateIssuer;
+  privok, jsonok: boolean;
+begin
+  with ExeVersion do
+    fileroot := SysUtils.LowerCase(format('%s@%s', [User, Host]));
+  if aSearchFolder = '' then
+    fileroot := ExeVersion.ProgramFilePath + fileroot else
+    fileroot := IncludeTrailingPathDelimiter(aSearchFolder) + fileroot;
+  if aLocalFile <> nil then
+    aLocalFile^ := fileroot;
+  fileunlock := fileroot + '.unlock';
+  filepublic := fileroot + ECCCERTIFICATEPUBLIC_FILEEXT;
+  filesecret := fileroot + '.secret'; // DPAPI-encrypted .private file
+  try
+    unlock := StringFromFile(fileunlock);
+    secret := StringFromFile(filesecret);
+    temp := CryptDataForCurrentUser(secret, aDPAPI, false);
+    priv := TECCCertificateSecret.Create;
+    try
+      result := eaInvalidSecret;      
+      {$ifdef ENHANCEDRTL} {$ifdef VER150}
+      if crc32cinlined($D26BE33F,@ECCAuthorize,14)<>$29743A4B then
+        exit; // avoid stubbing (Delphi 7 ERTL only - just to show how it works)
+      {$endif} {$endif}
+      ECCIssuer(ExeVersion.User,Issuer);
+      privok := priv.LoadFromSecureBinary(temp, aSecretPass, 100) and
+        IsEqual(priv.Content.Signed.Issuer, Issuer);
+      if aSecretInfo <> nil then
+        aSecretInfo^ := priv.Content.Signed;
+      if not privok or not ECCCheckDate(priv.Content) then begin
+        new := TECCCertificateSecret.CreateNew(nil, ExeVersion.User, aSecretDays);
+        try
+          new.ToFile(filepublic);
+          temp := new.SaveToSecureBinary(aSecretPass, 7, 100);
+          secret := CryptDataForCurrentUser(temp, aDPAPI, true);
+          FileFromString(secret, filesecret);
+        finally
+          new.Free;
+        end;
+        exit;
+      end;
+      result := eaMissingUnlockFile;
+      if unlock = '' then
+        exit;
+      result := eaInvalidUnlockFile;
+      decrypt := priv.Decrypt(unlock, json, @signature, nil, nil, aDecryptSalt, 10000);
+      if decrypt <> ecdDecryptedWithSignature then
+        exit;
+      auth := TECCCertificate.CreateFromBase64(aAppLockPublic64);
+      try
+        hash := SHA256Digest(pointer(json), length(json));
+        valid := ECCVerify(signature, hash, auth.Content);
+        if not (valid in ECC_VALIDSIGN) then
+          exit;
+      finally
+        auth.Free;
+      end;
+    finally
+      priv.Free;
+    end;
+    RemoveCommentsFromJSON(pointer(json));
+    JSONToObject(aContent, pointer(json), jsonok, nil, JSONTOOBJECT_TOLERANTOPTIONS);
+    if jsonok then
+      result := eaSuccess
+    else
+      result := eaInvalidJson;
+  finally
+    FillZero(hash);
+    FillZero(json);
+    FillZero(unlock);
+    FillZero(temp);
+    FillZero(secret);
+  end;
+end;
+
+
+{ TDDDRestClientWebSockets }
+
+constructor TDDDRestClientWebSockets.Create(aSettings: TDDDRestClientSettings;
+  aOnConnect, aOnDisconnect: TOnRestClientNotify);
+var
+  u: TURI;
+  t: integer;
+  log: ISynLog;
+begin
+  DefineApplication; // should fill fApplicationName
+  fOnFailed := ClientFailed;
+  fOnSetUser := ClientSetUser;
+  fOnConnect := aOnConnect;
+  fOnDisconnect := aOnDisconnect;
+  fOnWebSocketsClosed := WebSocketsClosed;
+  if aSettings = nil then
+    raise EDDDRestClient.CreateUTF8('%.Create(%) aSettings=nil', [fApplicationName, self]);
+  if not u.From(aSettings.ORM.ServerName) then
+    raise EDDDRestClient.CreateUTF8('%.Create(%): invalid ORM.ServerName=%',
+      [self, fApplicationName, aSettings.ORM.ServerName]);
+  log := SQLite3Log.Enter('Create(%): connect to %', [fApplicationName, aSettings.ORM.ServerName], self);
+  t := aSettings.Timeout;
+  fConnectRetrySeconds := aSettings.Client.ConnectRetrySeconds;
+  inherited Create(u.Server, u.Port, CreateModel(aSettings), t, t, t);
+  Model.Owner := self; // just allocated by CreateModel()
+  if aSettings.Client.WebSocketsPassword <> '' then
+    WebSocketsConnect(aSettings.Client.PasswordPlain);
+  OnAuthentificationFailed := aSettings.OnAuthentificationFailed;
+  if aSettings.ORM.Password = '' then
+    RegisterServices // plain REST connection without authentication
+  else
+    if not SetUser(aSettings.ORM.User, aSettings.ORM.PasswordPlain, true) then
+      raise EDDDRestClient.CreateUTF8('%.Create(%): invalid User=%',
+        [self, fApplicationName, aSettings.ORM.User]);
+end;
+
+destructor TDDDRestClientWebSockets.Destroy;
+begin
+  with fLogClass.Enter(self, 'Destroy') do
+  try
+    ClientDisconnect;
+  finally
+    inherited Destroy;
+    fOwnedSettings.Free;
+  end;
+end;
+
+procedure TDDDRestClientWebSockets.AfterConnection;
+begin // do nothing by default
+end;
+
+procedure TDDDRestClientWebSockets.AfterDisconnection;
+begin // do nothing by default
+end;
+
+procedure TDDDRestClientWebSockets.ClientDisconnect;
+var
+  log: ISynLog;
+begin
+  if not fConnected then
+    exit; // notify once
+  log := fLogClass.Enter('ClientDisconnect(%)', [fApplicationName], self);
+  fConnected := false;
+  log.Log(sllTrace, 'ClientDisconnect -> AfterDisconnection', self);
+  try
+    AfterDisconnection;
+  except
+    log.Log(sllWarning, 'Ignored AfterDisconnection exception', self);
+  end;
+  if Assigned(fOnDisconnect) then
+    try
+      log.Log(sllTrace, 'ClientDisconnect -> OnDisconnect = %',
+        [ToText(TMethod(fOnDisconnect))], self);
+      fOnDisconnect(self);
+    except
+      log.Log(sllWarning, 'Ignored OnDisconnect exception', self);
+    end;
+end;
+
+procedure TDDDRestClientWebSockets.ClientFailed(Sender: TSQLRestClientURI;
+  E: Exception; Call: PSQLRestURIParams);
+begin
+  if Assigned(Call) and (Call^.OutStatus = HTTP_NOTIMPLEMENTED) then
+    ClientDisconnect;
+end;
+
+procedure TDDDRestClientWebSockets.ClientSetUser(Sender: TSQLRestClientURI);
+var
+  log, log2: ISynLog;
+begin
+  if Assigned(Sender) and Assigned(Sender.SessionUser) then begin
+    log := fLogClass.Enter('ClientSetUser(%) %',
+      [fApplicationName, Sender.SessionUser], self);
+    ClientDisconnect;
+    fConnected := true;
+    fSessionVersion := '';
+    if not fServicesRegistered then begin
+      log2 := fLogClass.Enter('RegisterServices', [], self);
+      RegisterServices;
+      log2 := nil;
+      fServicesRegistered := true;
+    end;
+    log.Log(sllTrace, 'ClientSetUser -> AfterConnection', self);
+    try
+      AfterConnection;
+    except
+      log.Log(sllWarning, 'Ignored AfterConnection exception', self);
+    end;
+    if Assigned(fOnConnect) then
+    try
+      log.Log(sllTrace, 'ClientSetUser -> OnConnect = %',
+        [ToText(TMethod(fOnConnect))], self);
+      fOnConnect(self);
+    except
+      log.Log(sllWarning, 'Ignored OnConnect exception', self);
+    end;
+  end;
+end;
+
+function TDDDRestClientWebSockets.CreateModel(aSettings: TDDDRestClientSettings): TSQLModel;
+begin // create a void data model by default
+  result := TSQLModel.Create([], aSettings.Client.Root);
+end;
+
+procedure TDDDRestClientWebSockets.WebSocketsClosed(Sender: TObject);
+begin
+  ClientDisconnect;
+end;
+
+
 initialization
   TJSONSerializer.RegisterObjArrayForJSON(
     [TypeInfo(TECCCertificateObjArray),TECCCertificate]);
+  {$ifdef DEBUG}
   {$ifdef EnableMemoryLeakReporting}
   {$ifdef HASFASTMM4} // FastMM4 integrated in Delphi 2006 (and up)
   ReportMemoryLeaksOnShutdown := True;
+  {$endif}
   {$endif}
   {$endif}
 end.

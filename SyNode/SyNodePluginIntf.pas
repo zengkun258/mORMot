@@ -45,7 +45,28 @@ const
   ptBuffer = 100;
   ptAny = 500;
 
-function nsmCallFunc(cx: PJSContext; argc: uintN;  var vp: JSArgRec; const Params: array of uintN; isConstructor: Boolean = false): Boolean; cdecl;
+type
+  PNSMCallInfo = ^TNSMCallInfo;
+  TNSMCallInfo = record
+    func: TNsmFunction;
+    argc: Integer;
+    argt: PInt64Array;
+  end;
+
+  TNSMCallInfoArray = array of TNSMCallInfo;
+
+  /// Helper to call a native function depending on JS function arguments.
+  // As a side effect will verify JS function arguments types. Can be used e.g. as:
+  // ! const
+  // !   overload1Args: array [0..0] of uintN = ( ptInt );
+  // !   overload2Args: array [0..1] of uintN = ( ptInt, SyNodePluginIntf.ptStr );
+  // !   overloads: array [0..1] of TNSMCallInfo = (
+  // !     (func: @SLReadLn_impl; argc: Length(overload1Args); argt: @overload1Args),
+  // !     (func: @SLReadLn_impl; argc: Length(overload2Args); argt: @overload2Args));
+  // ! begin
+  // !   Result := nsmCallFunc(cx, argc, vp, @overloads, Length(overloads));
+  // ! end;
+  function nsmCallFunc(cx: PJSContext; argc: uintN;  var vp: JSArgRec; const overloads: TNSMCallInfoArray; overloadsCount: Integer = 1; isConstructor: Boolean = false): Boolean; cdecl;
 
 const
   StaticROAttrs = JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT;
@@ -68,58 +89,44 @@ begin
   end;
 end;
 
-///////
-/// Structure of params Is
-/// (param_count_case1(N1),param1_case1,param2_case1...paramN1_case1,Integer(call_case1),
-///  param_count_case2(N2),param1_case2,param2_case2...paramN2_case2,Integer(call_case2),...
-///  param_count_caseK(NK),param1_caseK,param2_caseK...paramNK_caseK,Integer(call_caseK2)
-///  )
-function nsmCallFunc(cx: PJSContext; argc: uintN; var vp: JSArgRec; const Params: array of uintN; isConstructor: Boolean = false): Boolean; cdecl;
+function nsmCallFunc(cx: PJSContext; argc: uintN; var vp: JSArgRec; const overloads: TNSMCallInfoArray; overloadsCount: Integer = 1; isConstructor: Boolean = false): Boolean; cdecl;
 var
   thisObj, calleeObj: PJSObject;
   vals: PjsvalVector;
-  i,j: uintN;
-  paramsCount: uintN;
-  call: TNsmFunction;
+  i,j: Integer;
+  overloadCase: PNSMCallInfo;
   IsCalled, IsCorrect: Boolean;
 begin
   Result := False;
   try
     if isConstructor xor vp.IsConstructing then
-    begin
       raise ESMException.Create('JS_IS_CONSTRUCTING');
-    end;
+
     thisObj := vp.thisObject[cx];
     calleeObj := vp.calleObject;
-
     vals := vp.argv;
-
     IsCalled := false;
 
-    i := Low(Params);
-    while i<=uintN(High(Params)) do begin
-      paramsCount := Params[i];
-      Inc(i);
-      if argc = paramsCount then begin
-        IsCorrect := true;
-        if paramsCount>0 then
-          for j := 0 to paramsCount - 1 do begin
-            IsCorrect := isParamCorrect(Params[i+j], vals[j]);
+    for i := 0 to overloadsCount - 1 do begin
+      overloadCase := @overloads[i];
+      if (overloadCase <> nil) then begin
+        if argc = overloadCase.argc then begin
+          IsCorrect := true;
+          for j := 0 to overloadCase.argc - 1 do begin
+            IsCorrect := isParamCorrect(overloadCase.argt[j], vals[j]);
             if not IsCorrect then Break;
           end;
-        if IsCorrect then begin
-          call := TNsmFunction(Params[i+paramsCount]);
-
-          vp.rval := call(cx, argc, vals, thisObj, calleeObj);
-          IsCalled := True;
-          Break;
+          if IsCorrect then begin
+            vp.rval := overloadCase.func(cx, argc, vals, thisObj, calleeObj);
+            IsCalled := True;
+            Break;
+          end;
         end;
       end;
-      inc(i, paramsCount+1);
     end;
 
     if not IsCalled then
-      raise ESMException.Create('invalid ussage');
+      raise ESMException.Create('invalid usage');
 
     Result := True;
   except

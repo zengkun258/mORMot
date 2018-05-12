@@ -1,3 +1,6 @@
+// original FireFox implementation is in:
+// git clone https://github.com/mozilla/gecko-dev.git
+// cd gecko-dev/devtools/server 
 import * as DevToolsUtils from 'DevTools/DevToolsUtils.js';
 import {JSPropertyProvider} from 'DevTools/js-property-provider.js';
 import {ObjectActorPreviewers} from 'DevTools/ObjectActorPreviewers.js';
@@ -14,7 +17,7 @@ class ActorManager {
     }
     init(){
         this.console = new ConsoleActor('console' + this.threadID);
-        this.addon = new AddonActor('addon' + this.threadID);
+        this.addon = new AddonActor('thread_' + dbg_binding.threadId);
     }
     getActor(actorName){
         let actor = this;
@@ -181,6 +184,32 @@ class ConsoleActor extends Actor {
             } else if ("throw" in evalResult) {
                 let error = evalResult.throw;
                 errorGrip = this.getGrip(error);
+				errorMessage = String(error); 
+				
+				if (typeof error === "object" && error !== null) {
+				  try {
+					errorMessage = DevToolsUtils.callPropertyOnObject(error, "toString");
+				  } catch (e) {
+					// If the debuggee is not allowed to access the "toString" property
+					// of the error object, calling this property from the debuggee's
+					// compartment will fail. The debugger should show the error object
+					// as it is seen by the debuggee, so this behavior is correct.
+					//
+					// Unfortunately, we have at least one test that assumes calling the
+					// "toString" property of an error object will succeed if the
+					// debugger is allowed to access it, regardless of whether the
+					// debuggee is allowed to access it or not.
+					//
+					// To accomodate these tests, if calling the "toString" property
+					// from the debuggee compartment fails, we rewrap the error object
+					// in the debugger's compartment, and then call the "toString"
+					// property from there.
+					if (typeof error.unsafeDereference === "function") {
+					  errorMessage = error.unsafeDereference().toString();
+					}
+				  }				
+				}  
+/*				
                 // XXXworkers: Calling unsafeDereference() returns an object with no
                 // toString method in workers. See Bug 1215120.
                 let unsafeDereference = error && (typeof error === "object") &&
@@ -188,6 +217,7 @@ class ConsoleActor extends Actor {
                 errorMessage = unsafeDereference && unsafeDereference.toString
                     ? unsafeDereference.toString()
                     : "" + error;
+*/	
             }
         }
 
@@ -825,18 +855,21 @@ class ThreadActor extends Actor {
 class SourcesActor extends Actor {
     constructor () {
         super('source');
+        this._sourcesMap = new Map()
+        this.scriptCounterID = 1
     }
     _addSource(source) {
-        if (this[source.canonicalId])
+        if (this._sourcesMap.get(source))
             return undefined;
         else
-            return (new SourceActor(source, this))._resp;
+            return new SourceActor(this.scriptCounterID++, source, this)._resp
     }
 }
 
 class SourceActor extends Actor {
-    constructor (source, parent) {
-        super(source.canonicalId, parent);
+    constructor (actorID, source, parent) {
+        super(actorID, parent);
+        parent._sourcesMap.set(source, this)
         this._source = source;
         this._breakpoints = {};
     }
@@ -880,6 +913,26 @@ class SourceActor extends Actor {
             return null;
         }
     }
+    getProperPath(p) {
+        let res = p;
+        // replace single backslash with url slash (every occurrence)
+        res = res.replace(/\\/g, '/');
+        if (res.startsWith('//')) {
+            res = 'file:' + res
+        }
+        else if (res.charAt(1) == ':') {
+            res = 'file:///' + res
+        } 
+        return res;
+    }
+    findSourceMapData(data) {
+        let result = undefined;
+        let searchResult = new RegExp('\/\/# ?sourceMappingURL ?= ?(.*)', 'i').exec(data);
+        if (searchResult) {
+            result = searchResult.pop();
+        }
+        return result;
+    }
     get _resp(){
         let source = this._source;// || this.generatedSource;
         // This might not have a source or a generatedSource because we
@@ -889,20 +942,29 @@ class SourceActor extends Actor {
         if (source && source.introductionScript) {
             introductionUrl = source.introductionScript.source.url;
         }
-
+        let addonPath = undefined;
         let url = this._source.url;
-        if (url === 'debugger eval code') {
-            url = null;
+        if (!url || url === 'debugger eval code') {
+            url = undefined;
+        } else {
+            url = this.getProperPath(url.split(" -> ").pop());
+            if (url.startsWith('file:')) {
+                let webAppRootPath = this.getProperPath(dbg_binding.webAppRootPath);
+                if (url.startsWith(webAppRootPath)) {
+                    addonPath = url.substr(webAppRootPath.length);
+                }
+            }
         }
         return {
             "actor": this.fullActor,
-            "url": url ? url.split(" -> ").pop() : null,
-            "addonPath" : (url && url.lastIndexOf('\\') > 0) ? url.substr(url.lastIndexOf('\\')+1) : url, // displayed as a file name
-            "addonID": url ? ((url.lastIndexOf('\\') > 0) ? url.substr(0, url.lastIndexOf('\\') ) : '<>') : null, //displayed as a folder in debugger
+            "url": url,
+            "addonPath" : addonPath,
+            "addonID": addonPath ? dbg_binding.addonID : undefined,
             "isBlackBoxed": false,
             "isPrettyPrinted": false,
-            "introductionUrl": introductionUrl ? introductionUrl.split(" -> ").pop() : null,
-            introductionType: source ? source.introductionType : null
+            "introductionUrl": introductionUrl ? introductionUrl.split(' -> ').pop() : undefined,
+            introductionType: source ? source.introductionType : '',
+            "sourceMapURL": this.findSourceMapData(source.text)
         }
     }
 }
@@ -1512,7 +1574,7 @@ class FrameActor extends Actor {
         if (this._frame.script) {
             let script = this._frame.script,
                 location = script.getOffsetLocation(this._frame.offset),
-                sourceResp = actorManager.getActor('source')[script.source.canonicalId]._resp;
+                sourceResp = actorManager.getActor('source')._sourcesMap.get(script.source)._resp;
             resp.where = {
                 source: sourceResp,
                 line: location.lineNumber,
@@ -1537,21 +1599,28 @@ class FrameActor extends Actor {
 
 class AddonActor extends Actor {
     constructor(actorName) {
-        let serverActor = new Actor('server1'),
+        let serverActor = new Actor(dbg_binding.debuggerName),
             connActor = new Actor('conn1', serverActor);
         super(actorName, connActor);
         new ThreadActor();
     }
     attach(aRequest){
         return {
-            "type": "tabAttached",
-            "threadActor": actorManager.thread.fullActor
+            type: "tabAttached",
+            threadActor: actorManager.thread.fullActor,
+            traits: {reconfigure: false}
         }
     }
     detach(aRequest) {
         return {
             "type": "detached"
         }
+    }
+    reconfigure(aRequest) {
+        return {};
+    }
+    listWorkers(aRequest) {
+        return { from: this.fullActor, "workers":[] }
     }
 }
 
@@ -1569,7 +1638,7 @@ export function newMessage (msg) {
             handler = actor[inRequest.type];
             outRequest = handler ? actor[inRequest.type](inRequest) : {};
             if (!handler)
-                DevToolsUtils.reportException('newMessage: ' + inRequest.type + ' not found in ' + actorName, msg);
+                DevToolsUtils.reportException('newMessage: ' + inRequest.type + ' not found in ' + actorName + ' Class ' + actor.constructor.name, msg);
             if (outRequest) {
                 outRequest.from = actorName;
                 dbg_binding.send(outRequest);

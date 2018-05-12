@@ -6,7 +6,7 @@ unit SynDBDataset;
 {
   This file is part of Synopse framework.
 
-  Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+  Synopse framework. Copyright (C) 2018 Arnaud Bouchez
   Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBDataset;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -366,7 +366,7 @@ procedure TSQLDBDatasetStatementAbstract.Prepare(const aSQL: RawUTF8; ExpectResu
 var Log: ISynLog;
     oSQL: RawUTF8;
 begin
-  Log := SynDBLog.Enter(Self);
+  Log := SynDBLog.Enter(Self, 'Prepare');
   if fPrepared then
     raise ESQLDBDataset.CreateUTF8('%.Prepare() shall be called once',[self]);
   inherited Prepare(aSQL,ExpectResults); // connect if necessary
@@ -382,7 +382,7 @@ var Log: ISynLog;
     lArrayIndex: integer;
     Field: TField;
 begin
-  Log := SynDBLog.Enter(Self);
+  Log := SynDBLog.Enter(Self, 'ExecutePrepared');
   inherited ExecutePrepared; // set fConnection.fLastAccessTicks
   with Log.Instance do
     if sllSQL in Family.Level then

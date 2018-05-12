@@ -171,7 +171,7 @@ begin
     info.Title := 'mORMot BLOG';
     info.Language := 'en';
     info.Description := 'Sample Blog Web Application using Synopse mORMot MVC';
-    info.Copyright := '&copy;2017 <a href=https://synopse.info>Synopse Informatique</a>';
+    info.Copyright := '&copy;2018 <a href=https://synopse.info>Synopse Informatique</a>';
     info.About := TSynTestCase.RandomTextParagraph(30,'!');
     RestModel.Add(info,true);
   end;
@@ -462,12 +462,11 @@ begin
   end;
 end;
 
-{$ifndef ISDELPHI2010}
-
-
 initialization
+  {$ifndef DELPHI2010}
+  // manual definition mandatory only if Delphi 2010 RTTI is not available
   TTextWriter.RegisterCustomJSONSerializerFromTextSimpleType(TypeInfo(TSQLAuthorRights));
   TTextWriter.RegisterCustomJSONSerializerFromText(TypeInfo(TCookieData),
     'AuthorName RawUTF8 AuthorID cardinal AuthorRights TSQLAuthorRights');
-{$endif}
+  {$endif}
 end.

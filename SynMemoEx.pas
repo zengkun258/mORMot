@@ -5,7 +5,7 @@ unit SynMemoEx;
 {
     This file is part of Synopse extended TMemo
 
-    Synopse SynMemoEx. Copyright (C) 2017 Arnaud Bouchez
+    Synopse SynMemoEx. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -24,11 +24,11 @@ unit SynMemoEx;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
-  
+
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
   the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
@@ -369,7 +369,7 @@ type
 
   TTabStop = (tsTabStop, tsAutoIndent);
 
-  
+
   {*** TCustomMemoEx }
 
   TCustomMemoEx = class(TCustomControl)

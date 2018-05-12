@@ -6,7 +6,7 @@ unit SynDBMidasVCL;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBMidasVCL;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -123,7 +123,7 @@ type
   public
     /// initialize the instance
     constructor Create(AOwner: TComponent); override;
-    procedure FetchParams; 
+    procedure FetchParams;
     /// initialize the internal TDataSet from a SynDB TSQLDBStatement result set
     // - the supplied TSQLDBStatement can then be freed by the caller, since
     // a private binary copy will be owned by this instance (in fDataSet.Data)

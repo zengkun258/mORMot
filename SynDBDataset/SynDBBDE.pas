@@ -6,7 +6,7 @@ unit SynDBBDE;
 {
   This file is part of Synopse framework.
 
-  Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+  Synopse framework. Copyright (C) 2018 Arnaud Bouchez
   Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBBDE;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -228,7 +228,7 @@ begin
   if (fSession=nil) or (fDatabase=nil) then
     raise ESQLDBBDE.CreateUTF8('%.Connect() on % failed: Database=nil',
       [self,fProperties.ServerName]);
-  Log := SynDBLog.Enter(Self,pointer(FormatUTF8('Connect to Alias=%',[fDatabase.AliasName])),true);
+  Log := SynDBLog.Enter('Connect to Alias=%',[fDatabase.AliasName],self);
   try
     fSession.Open;
     fDatabase.Open;

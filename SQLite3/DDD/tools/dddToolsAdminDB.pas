@@ -26,7 +26,7 @@ uses
 
 type
   TDBFrame = class;
-  TOnExecute = procedure(Sender: TDBFrame; const SQL, Content: RawUTF8) of object;
+  TOnExecute = function(Sender: TDBFrame; const SQL, Content: RawUTF8): boolean of object;
   
   TDBFrame = class(TFrame)
     pnlRight: TPanel;
@@ -57,11 +57,11 @@ type
     fSQL, fPreviousSQL: RawUTF8;
     fSQLLogFile: TFileName;
     function ExecSQL(const SQL: RawUTF8): RawUTF8;
-    procedure SetResult(const JSON: RawUTF8); virtual;
     function OnText(Sender: TSQLTable; FieldIndex, RowIndex: Integer;
       var Text: string): boolean;
     procedure OnCommandsToGridAdd(const Item: TSynNameValueItem; Index: PtrInt);
-    function OnGridToCell(Sender: TSQLTable; Row, Field: integer): RawJSON;
+    function OnGridToCell(Sender: TSQLTable; Row, Field: integer;
+      HumanFriendly: boolean): RawJSON;
     procedure LogClick(Sender: TObject);
     procedure LogDblClick(Sender: TObject);
     procedure LogSearch(Sender: TObject);
@@ -81,12 +81,14 @@ type
     TableDblClickOrderByIdDesc: boolean;
     TableDblClickOrderByIdDescCSV: string;
     SavePrefix: TFileName;
+    OnBeforeExecute: TOnExecute;
     OnAfterExecute: TOnExecute;
     constructor Create(AOwner: TComponent); override;
     procedure EnableChkTables(const aCaption: string);
     procedure Open; virtual;
     procedure FillTables(const customcode: string); virtual;
     procedure AddSQL(SQL: string; AndExec: boolean);
+    procedure SetResult(const JSON: RawUTF8); virtual;
     function NewCmdPopup(const c: string; NoCmdTrim: boolean): TMenuItem;
     destructor Destroy; override;
   end;
@@ -140,6 +142,7 @@ begin
   mmoSQL.Text := '#help';
   btnExecClick(nil);
   mmoSQL.Text := '';
+  mmoResult.Text := '';
 end;
 
 procedure TDBFrame.FillTables(const customcode: string);
@@ -162,20 +165,30 @@ end;
 procedure TDBFrame.lstTablesDblClick(Sender: TObject);
 var
   i: integer;
-  table, sql: string;
+  table, fields, sql, orderby: string;
 begin
   i := lstTables.ItemIndex;
   if i < 0 then
     exit;
   table := lstTables.Items[i];
-  sql := string(TableDblClickSelect.Value(RawUTF8(table)));
-  if sql='' then
-    sql := '*';
-  sql := 'select '+sql+' from ' + table;
-  if TableDblClickOrderByIdDesc or ((TableDblClickOrderByIdDescCSV <> '') and
-     (Pos(table + ',', TableDblClickOrderByIdDescCSV + ',') > 0)) then
-    sql := sql + ' order by id desc';
-  sql := sql + ' limit 1000';
+  fields := string(TableDblClickSelect.Value(RawUTF8(table)));
+  if fields='' then
+    fields := '*' else begin
+    i := Pos(' order by ', fields);
+    if i > 0 then begin
+      orderby := copy(fields, i, maxInt);
+      Setlength(fields, i - 1);
+    end;
+  end;
+  sql := 'select '+fields+' from ' + table;
+  if orderby <> '' then
+    sql := sql + orderby
+  else begin
+    if TableDblClickOrderByIdDesc or ((TableDblClickOrderByIdDescCSV <> '') and
+       (Pos(table + ',', TableDblClickOrderByIdDescCSV + ',') > 0)) then
+      sql := sql + ' order by id desc';
+    sql := sql + ' limit 1000';
+  end;
   AddSQL(sql, true);
 end;
 
@@ -309,6 +322,8 @@ begin
   if IdemPropNameU(fSQL, '#client') then begin
     fJson := ObjectToJSON(Client);
   end
+  else if Assigned(OnBeforeExecute) and not OnBeforeExecute(self, fSQL, '') then
+    fJson := '"You are not allowed to execute this command for security reasons"'
   else begin
     Screen.Cursor := crHourGlass;
     try
@@ -460,7 +475,8 @@ begin
   end;
 end;
 
-function TDBFrame.OnGridToCell(Sender: TSQLTable; Row, Field: integer): RawJSON;
+function TDBFrame.OnGridToCell(Sender: TSQLTable; Row, Field: integer;
+  HumanFriendly: boolean): RawJSON;
 var
   methodName: RawUTF8;
   serv, m: integer;
@@ -484,7 +500,10 @@ begin
   with _Safe(fGridToCellVariant)^ do
     if cardinal(Field)>=cardinal(Count) then
       result := '' else
-      result := VariantSaveJSON(Values[Field]);
+      if HumanFriendly and (_Safe(Values[Field])^.Kind = dvUndefined) then
+        VariantToUTF8(Values[field], RawUTF8(result))
+      else
+        result := VariantSaveJSON(Values[Field]);
 end;
 
 procedure TDBFrame.drwgrdResultClick(Sender: TObject);
@@ -494,7 +513,7 @@ var
 begin
   R := drwgrdResult.Row;
   if (R > 0) and (R <> fGridToCellRow) and (Grid <> nil) then begin
-    OnGridToCell(Grid.Table,R,0);
+    OnGridToCell(Grid.Table,R,0,false);
     JSONBufferReformat(pointer(VariantToUTF8(fGridToCellVariant)), json, jsonUnquotedPropNameCompact);
     mmoResult.OnGetLineAttr := mmoResult.JSONLineAttr;
     mmoResult.Text := UTF8ToString(json);

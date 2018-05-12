@@ -6,7 +6,7 @@ unit SynOpenSSL;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynOpenSSL;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -60,6 +60,7 @@ uses
   {$else}
   {$ifdef FPC}
   dynlibs,
+  SynFPCLinux,
   {$endif}
   {$ifdef KYLIX3}
   LibC,
@@ -83,7 +84,7 @@ const
   SSL_ERROR_ZERO_RETURN = 6;
   SSL_ERROR_WANT_CONNECT = 7;
   SSL_ERROR_WANT_ACCEPT = 8;
-  SSL_ERROR_NOT_FATAL =[SSL_ERROR_NONE, SSL_ERROR_WANT_READ,
+  SSL_ERROR_NOT_FATAL = [SSL_ERROR_NONE, SSL_ERROR_WANT_READ,
     SSL_ERROR_WANT_WRITE, SSL_ERROR_WANT_CONNECT, SSL_ERROR_WANT_ACCEPT];
 
   SSL_ST_CONNECT = $1000;
@@ -117,6 +118,7 @@ const
   BIO_FLAGS_SHOULD_RETRY = 8;
   BIO_NOCLOSE = 0;
   BIO_CLOSE = 1;
+  BIO_C_GET_MD_CTX = 120;
 
 type
   {$ifdef CPU64}
@@ -232,6 +234,7 @@ type
     BIO_new_socket: function(sock: integer; close_flag: integer): PBIO; cdecl;
     X509_get_issuer_name: function(cert: PX509): PX509_NAME; cdecl;
     X509_get_subject_name: function(cert: PX509): PX509_NAME; cdecl;
+    X509_get_pubkey: function(cert: PX509): PEVP_PKEY; cdecl;
     X509_free: procedure(cert: PX509); cdecl;
     X509_NAME_print_ex: function(bout: PBIO; nm: PX509_NAME; indent: integer; flags: cardinal): integer; cdecl;
     sk_num: function(stack: PSTACK): integer; cdecl;
@@ -247,12 +250,14 @@ type
     EVP_MD_CTX_create: function: PEVP_MD_CTX; cdecl;
     EVP_MD_CTX_destroy: procedure(ctx: PEVP_MD_CTX); cdecl;
     EVP_sha256: function: PEVP_MD; cdecl;
+    EVP_sha384: function: PEVP_MD; cdecl;
+    EVP_sha512: function: PEVP_MD; cdecl;
     EVP_PKEY_size: function(key: PEVP_PKEY): integer; cdecl;
     EVP_DigestSignInit: function(aCtx: PEVP_MD_CTX; aPCtx: PEVP_PKEY_CTX; aType: PEVP_MD; aEngine: ENGINE; aKey: PEVP_PKEY): integer; cdecl;
-    EVP_DigestUpdate: function(ctx: PEVP_MD_CTX; d: pointer; cnt: cardinal): integer; cdecl;
-    EVP_DigestSignFinal: function(ctx: PEVP_MD_CTX; d: PByte; var cnt: cardinal): integer; cdecl;
+    EVP_DigestUpdate: function(ctx: PEVP_MD_CTX; d: pointer; cnt: size_t): integer; cdecl;
+    EVP_DigestSignFinal: function(ctx: PEVP_MD_CTX; d: PByte; var cnt: size_t): integer; cdecl;
     EVP_DigestVerifyInit: function(aCtx: PEVP_MD_CTX; aPCtx: PEVP_PKEY_CTX; aType: PEVP_MD; aEngine: ENGINE; aKey: pEVP_PKEY): integer; cdecl;
-    EVP_DigestVerifyFinal: function(ctx: pEVP_MD_CTX; d: PByte; cnt: cardinal): integer; cdecl;
+    EVP_DigestVerifyFinal: function(ctx: pEVP_MD_CTX; d: PByte; cnt: size_t): integer; cdecl;
     CRYPTO_malloc: function(aLength: longint; f: PAnsiChar; aLine: integer): pointer; cdecl;
     CRYPTO_free: procedure(str: pointer); cdecl;
     SSLeay_version: function(t: integer): PAnsiChar; cdecl;
@@ -296,7 +301,7 @@ type
     SSL_get0_alpn_selected: procedure(s: PSSL; out data: PAnsiChar; out len: integer); cdecl;
     SSL_clear: function(s: PSSL): integer; cdecl;
     // aliases
-    EVP_DigestVerifyUpdate: function(ctx: PEVP_MD_CTX; d: pointer; cnt: cardinal): integer; cdecl;
+    EVP_DigestVerifyUpdate: function(ctx: PEVP_MD_CTX; d: pointer; cnt: size_t): integer; cdecl;
     sk_ASN1_OBJECT_num: function(stack: PSTACK): integer; cdecl;  // = sk_num
     sk_GENERAL_NAME_num: function(stack: PSTACK): integer; cdecl; // = sk_num
     sk_GENERAL_NAME_pop: function(stack: PSTACK): pointer; cdecl; // = sk_pop
@@ -347,15 +352,15 @@ var
   OpenSSLFolderName: TFileName;
 
   /// global variable used to inline OpenSSL function
-  // - do not use directly
+  // - do not use directly - but used by OpenSSL
   SharedOpenSSL: TOpenSSLLib;
 
   /// global variable used to inline OpenSSL function
-  // - do not use directly
+  // - do not use directly - but used by OpenSSL
   TryLoadOpenSSLState: (ossNotTested, ossAvailable, ossNotAvailable);
 
 /// global function used to inline OpenSSL function
-// - do not call directly
+// - do not call directly - but used by OpenSSL
 procedure TryLoadOpenSSL;
 
 /// access to a shared OpenSSL library functions
@@ -386,7 +391,7 @@ type
   TOnOpenSSLNotify = procedure(Sender: TOpenSSLConnectionClient) of object;
 
   /// event raised when reading or writing some data over an Open SSL connection
-  // - Sender will actually be a TOpenSSLConnectionClient instance, but is 
+  // - Sender will actually be a TOpenSSLConnectionClient instance, but is
   // defined as a TObject so that it may be implemented on a class without any
   // dependency to the SynOpenSSL unit
   TOnOpenSSLData = procedure(Sender: TObject; Buffer: pointer; Len: integer) of object;
@@ -394,7 +399,18 @@ type
   /// the minimum TLS connection level expected at connection
   TOpenSSLConnectionLevel = (ssl23, tls10, tls11, tls12, tls12_h2);
 
-  TOpenSSLConnectionOption = (ocoNoCertificateValidation);
+  /// allows tuning of a particular TLS connection
+  // - define ocoNoCertificateValidation to disable certifications checking
+  // (e.g. for self-signed or debug/test certificates)
+  // - if you work with a lot of concurrent long-living connections (e.g. when
+  // implementing a server), you may dramatically reduce the memory consumption
+  // (to the prive of a slight performance degradation) by setting
+  // ocoNoReleaseBuffers - see http://stackoverflow.com/a/19294527/458259
+  // - for security reasons (i.e. to prevent BREACH and CRIME vulnerabilities),
+  // and also to reduce memory consumption, TLS compression is disabled by
+  // default: set ocoEnabledCompression to enable this unsafe feature
+  TOpenSSLConnectionOption = (ocoNoCertificateValidation, ocoNoReleaseBuffers,
+    ocoEnabledCompression);
   TOpenSSLConnectionOptions = set of TOpenSSLConnectionOption;
 
   /// implements a TLS secure client connection
@@ -420,9 +436,9 @@ type
     // - by default, a TLS 1.0 minimum level is defined, since SSL 2/3 are unsafe
     function Connect(const Read, Write: TOnOpenSSLData; Level: TOpenSSLConnectionLevel = tls10;
       Options: TOpenSSLConnectionOptions = []): boolean;
-    /// read some data from the secured SSL connection 
+    /// read some data from the secured SSL connection
     procedure SecureRead(Buffer: pointer; Len: integer);
-    /// write some data to the secured SSL connection 
+    /// write some data to the secured SSL connection
     function SecureWrite(Buffer: pointer; Len: integer): boolean;
     /// closes a client TSL connection
     procedure Disconnect;
@@ -484,7 +500,7 @@ const
   LIBCRYPTO_NAME = 'libcrypto.so.1.0.0';
   {$endif}
 
-  LIBCRYPTO_ENTRIES: array[0..50] of PChar = ('CRYPTO_num_locks',
+  LIBCRYPTO_ENTRIES: array[0..53] of PChar = ('CRYPTO_num_locks',
     'CRYPTO_set_locking_callback', 'CRYPTO_set_dynlock_create_callback',
     'CRYPTO_set_dynlock_lock_callback', 'CRYPTO_set_dynlock_destroy_callback',
     'CRYPTO_cleanup_all_ex_data', 'ERR_remove_state', 'ERR_free_strings',
@@ -492,12 +508,12 @@ const
     'ERR_load_BIO_strings', 'EVP_cleanup', 'EVP_PKEY_free', 'BIO_new',
     'BIO_ctrl', 'BIO_set_flags', 'BIO_test_flags', 'BIO_clear_flags',
     'BIO_new_mem_buf', 'BIO_free', 'BIO_s_mem', 'BIO_read', 'BIO_write',
-    'BIO_new_socket', 'X509_get_issuer_name', 'X509_get_subject_name',
+    'BIO_new_socket', 'X509_get_issuer_name', 'X509_get_subject_name', 'X509_get_pubkey',
     'X509_free', 'X509_NAME_print_ex', 'sk_num', 'sk_pop',
     'ASN1_BIT_STRING_get_bit', 'OBJ_obj2nid', 'OBJ_nid2sn', 'ASN1_STRING_data',
     'PEM_read_bio_X509', 'PEM_read_bio_PrivateKey', 'PEM_read_bio_RSAPrivateKey',
     'PEM_read_bio_PUBKEY', 'EVP_MD_CTX_create', 'EVP_MD_CTX_destroy',
-    'EVP_sha256', 'EVP_PKEY_size', 'EVP_DigestSignInit', 'EVP_DigestUpdate',
+    'EVP_sha256', 'EVP_sha384', 'EVP_sha512', 'EVP_PKEY_size', 'EVP_DigestSignInit', 'EVP_DigestUpdate',
     'EVP_DigestSignFinal', 'EVP_DigestVerifyInit', 'EVP_DigestVerifyFinal',
     'CRYPTO_malloc', 'CRYPTO_free', 'SSLeay_version');
   LIBSSL_ENTRIES: array[0..37] of PChar = ('SSL_library_init',
@@ -565,7 +581,7 @@ constructor TOpenSSLLib.Create(const aFolderName: TFileName);
     if h = 0 then
       raise EOpenSSL.CreateFmt('%s not found', [result]);
     for i := 0 to last do begin
-      api^ := GetProcAddress(h, PAnsiChar(name^));
+      api^ := GetProcAddress(h, PChar(name^));
       if api^ = nil then
         if (api = @@SSL_CTX_set_alpn_protos) or (api = @@SSL_get0_alpn_selected) then
           fAPLNNotSupported := true
@@ -576,7 +592,7 @@ constructor TOpenSSLLib.Create(const aFolderName: TFileName);
             FreeLibrary(fLibCrypto);
             fLibCrypto := 0;
           end;
-          raise EOpenSSL.CreateFmt('Missing %s in %s', [PAnsiChar(name^), result]);
+          raise EOpenSSL.CreateFmt('Missing %s in %s', [PChar(name^), result]);
         end;
       inc(api);
       inc(name);
@@ -739,7 +755,7 @@ var
   priv: PBIO;
   pkey: PEVP_PKEY;
   ctx: PEVP_MD_CTX;
-  size: cardinal;
+  size: size_t;
 begin
   result := '';
   if (privkey = nil) or (privkeylen = 0) then begin

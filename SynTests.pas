@@ -6,7 +6,7 @@ unit SynTests;
 (*
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynTests;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -94,6 +94,12 @@ type
   // - to be used with TSynTest descendants
   TSynTestEvent = procedure of object;
 
+  /// allows to tune TSynTest process
+  // - tcoLogEachCheck will log as sllCustom4 each non void Check() message
+  TSynTestOption = (tcoLogEachCheck);
+  /// set of options to tune TSynTest process
+  TSynTestOptions = set of TSynTestOption;
+
 {$M+} { we need the RTTI for the published methods of this object class }
   /// a generic class for both tests suit and cases
   // - purpose of this ancestor is to have RTTI for its published methods,
@@ -111,6 +117,7 @@ type
     end;
     fIdent: string;
     fInternalTestsCount: integer;
+    fOptions: TSynTestOptions;
     function GetTestName(Index: integer): string; {$ifdef HASINLINE}inline;{$endif}
     function GetTestMethod(Index: integer): TSynTestEvent; {$ifdef HASINLINE}inline;{$endif}
     function GetCount: Integer;
@@ -123,7 +130,7 @@ type
     // test list, accessible via the Count/TestName/TestMethod properties
     constructor Create(const Ident: string = '');
     /// register a specified test to this class instance
-    procedure Add(aMethod: TSynTestEvent; const aName: string);
+    procedure Add(const aMethod: TSynTestEvent; const aName: string);
     /// the test name
     // - either the Ident parameter supplied to the Create() method, either
     // a uncameled text from the class name
@@ -143,6 +150,8 @@ type
     // - any TestName/TestMethod[] index higher or equal to this value has been
     // added by a specific call to the Add() method
     property InternalTestsCount: integer read fInternalTestsCount;
+    /// allows to tune the test case process
+    property Options: TSynTestOptions read fOptions write fOptions;
   published
     { all published methods of the children will be run as individual tests
       - these methods must be declared as procedure with no parameter }
@@ -174,6 +183,7 @@ type
     // - WARNING: this method should be re-entrant - so using FreeAndNil() is
     // a good idea in this method :)
     procedure CleanUp; virtual;
+    procedure AddLog(condition: Boolean; const msg: string);
   public
     /// create the test case instance
     // - must supply a test suit owner
@@ -225,22 +235,19 @@ type
     procedure CheckLogTime(condition: boolean;
       const msg: RawUTF8; const args: array of const; level: TSynLogInfo=sllTrace);
     /// create a temporary string random content, WinAnsi (code page 1252) content
-    // - it somewhat faster if CharCount is a multiple of 5
     class function RandomString(CharCount: Integer): RawByteString;
     /// create a temporary UTF-8 string random content, using WinAnsi
     // (code page 1252) content
-    // - it somewhat faster if CharCount is a multiple of 5
     class function RandomUTF8(CharCount: Integer): RawUTF8;
     /// create a temporary UTF-16 string random content, using WinAnsi
     // (code page 1252) content
-    // - it somewhat faster if CharCount is a multiple of 5
     class function RandomUnicode(CharCount: Integer): SynUnicode;
     /// create a temporary string random content, using ASCII 7 bit content
-    // - it somewhat faster if CharCount is a multiple of 5
     class function RandomAnsi7(CharCount: Integer): RawByteString;
     /// create a temporary string random content, using A..Z,_,0..9 chars only
-    // - it somewhat faster if CharCount is a multiple of 5
     class function RandomIdentifier(CharCount: Integer): RawByteString;
+    /// create a temporary string random content, using uri-compatible chars only
+    class function RandomURI(CharCount: Integer): RawByteString;
     /// create a temporary string, containing some fake text, with paragraphs
     class function RandomTextParagraph(WordCount: Integer;
       LastPunctuation: AnsiChar='.'; const RandomInclude: RawUTF8=''): RawUTF8;
@@ -250,6 +257,8 @@ type
     // - speed is computed from the method start
     procedure NotifyTestSpeed(const ItemName: string; ItemCount: integer;
       SizeInBytes: cardinal=0; Timer: PPrecisionTimer=nil);
+    /// append some text to the current console
+    procedure AddConsole(const msg: string);
     /// the test suit which owns this test case
     property Owner: TSynTests read fOwner;
     /// the test name
@@ -331,7 +340,8 @@ type
     // ! TSynLogTestLog := TSQLLog;
     // ! TMyTestsClass.RunAsConsole('My Automated Tests',LOG_VERBOSE);
     class procedure RunAsConsole(const CustomIdent: string='';
-      withLogs: TSynLogInfos=[sllLastError,sllError,sllException,sllExceptionOS]); virtual;
+      withLogs: TSynLogInfos=[sllLastError,sllError,sllException,sllExceptionOS];
+      options: TSynTestOptions=[]); virtual;
     /// create the test instance
     // - if an identifier is not supplied, the class name is used, after
     // T[Syn][Test] left trim and un-camel-case
@@ -374,6 +384,14 @@ type
     // - the Failed[] list is cleared at the beginning of the run
     // - Assertions and AssertionsFailed properties are reset and computed during
     // the run
+    // - you may override this method to provide additional information, e.g.
+    // ! function TMySynTests.Run: Boolean;
+    // ! begin // need SynSQLite3.pas unit in the uses clause
+    // !   CustomVersions := format(#13#10#13#10'Run on: %s'#13#10'    %s'#13#10 +
+    // !     'Using mORMot %s'#13#10'    %s %s', [OSVersionText, CpuInfoText,
+    // !      SYNOPSE_FRAMEWORK_FULLVERSION, sqlite3.ClassName, sqlite3.Version]);
+    // !   result := inherited Run;
+    // ! end;
     function Run: Boolean; virtual;
     /// the number of items in the TestCase[] array
     property TestCaseCount: Integer read GetTestCaseCount;
@@ -433,17 +451,15 @@ type
 implementation
 
 {$ifdef FPC}
+{$ifndef MSWINDOWS}
 uses
-  SynFPCTypInfo // small wrapper unit around FPC's TypInfo.pp
-  {$ifdef Linux}
-  , SynFPCLinux,BaseUnix, Unix, dynlibs
-  {$endif} ;
+  SynFPCLinux;
 {$endif}
-
+{$endif}
 
 { TSynTest }
 
-procedure TSynTest.Add(aMethod: TSynTestEvent; const aName: string);
+procedure TSynTest.Add(const aMethod: TSynTestEvent; const aName: string);
 var i: integer;
 begin
   if self=nil then
@@ -456,69 +472,31 @@ begin
 end;
 
 constructor TSynTest.Create(const Ident: string);
-
-  procedure AddParentsFirst(C: TClass);
-  type
-    TMethodInfo =
-      {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}
-      packed
-      {$endif FPC_REQUIRES_PROPER_ALIGNMENT}
-      record
-    {$ifdef FPC}
-      Name: PShortString;
-      Addr: Pointer;
-    {$else}
-      Len: Word;
-      Addr: Pointer;
-      Name: ShortString;
-    {$endif}
-    end;
-  var Table: {$ifdef FPC}PCardinalArray;{$else}PWordArray;{$endif}
-      M: ^TMethodInfo;
-      Method: TMethod;
-      i: integer;
-      text: RawUTF8;
-  begin
-    if C=nil then
-      exit;
-    AddParentsFirst(C.ClassParent); // put children published methods afterward
-    Table := PPointer(PtrInt(C)+vmtMethodTable)^;
-    if Table=nil then
-      exit;
-    Method.Data := self;
-    M := @Table^[1];
-    for i := 1 to Table^[0] do begin // Table^[0] = methods count
-      inc(fInternalTestsCount);
-      Method.Code := M^.Addr;
-      text := M^.Name{$ifdef FPC}^{$endif};
-      if text[1]='_' then
-        delete(text,1,1) else
-        text := UnCamelCase(text);
-      Add(TSynTestEvent(Method),Ansi7ToString(text));
-      {$ifdef FPC}
-      inc(M);
-      {$else}
-      inc(PtrInt(M),M^.Len);
-      {$endif}
-    end;
-  end;
-
-var tmp: RawUTF8;
+var id: RawUTF8;
+    methods: TPublishedMethodInfoDynArray;
+    i: integer;
 begin
   if Ident<>'' then
     fIdent := Ident else begin
-    tmp := RawUTF8(ClassName);
-    if IdemPChar(Pointer(tmp),'TSYN') then
-      if IdemPChar(Pointer(tmp),'TSYNTEST') then
-        Delete(tmp,1,8) else
-      Delete(tmp,1,4) else
-    if IdemPChar(Pointer(tmp),'TTEST') then
-      Delete(tmp,1,5) else
-    if tmp[1]='T' then
-      Delete(tmp,1,1);
-    fIdent := string(UnCamelCase(tmp));
+    ToText(ClassType,id);
+    if IdemPChar(Pointer(id),'TSYN') then
+      if IdemPChar(Pointer(id),'TSYNTEST') then
+        Delete(id,1,8) else
+      Delete(id,1,4) else
+    if IdemPChar(Pointer(id),'TTEST') then
+      Delete(id,1,5) else
+    if id[1]='T' then
+      Delete(id,1,1);
+    fIdent := string(UnCamelCase(id));
   end;
-  AddParentsFirst(PPointer(Self)^); // use recursion for adding
+  for i := 0 to GetPublishedMethods(self,methods)-1 do
+    with methods[i] do begin
+      inc(fInternalTestsCount);
+      if Name[1]='_' then
+        delete(Name,1,1) else
+        Name := UnCamelCase(Name);
+      Add(TSynTestEvent(Method),Ansi7ToString(Name));
+    end;
 end;
 
 function TSynTest.GetCount: Integer;
@@ -537,7 +515,7 @@ end;
 
 function TSynTest.GetTestMethod(Index: integer): TSynTestEvent;
 begin
-  if Cardinal(Index)>=Cardinal(length(fTests)) then
+  if (self=nil) or (Cardinal(Index)>=Cardinal(length(fTests))) then
     result := nil else
     result := fTests[Index].Method;
 end;
@@ -552,16 +530,19 @@ end;
 
 { TSynTestCase }
 
-{.$define CHECKDOLOG}
+procedure TSynTestCase.AddLog(condition: Boolean; const msg: string);
+const LEV: array[boolean] of TSynLogInfo = (sllFail, sllCustom4);
+begin
+  TSynLogTestLog.Add.Log(LEV[condition],'% % [%]',
+    [ClassType,TestName[Owner.fCurrentMethodIndex],msg]);
+end;
 
 procedure TSynTestCase.Check(condition: Boolean; const msg: string);
 begin
   if self=nil then
     exit;
-  {$ifdef CHECKDOLOG}
-  if msg<>'' then
-    TSynLogTestLog.Add.Log(sllTrace,msg);
-  {$endif}
+  if (msg<>'') and (tcoLogEachCheck in fOptions) then
+    AddLog(condition,msg);
   InterlockedIncrement(fAssertions);
   if not condition then
     TestFailed(msg);
@@ -573,10 +554,8 @@ begin
     result := false;
     exit;
   end;
-  {$ifdef CHECKDOLOG}
-  if msg<>'' then
-    TSynLogTestLog.Add.Log(sllTrace,msg);
-  {$endif}
+  if (msg<>'') and (tcoLogEachCheck in fOptions) then
+    AddLog(condition,msg);
   InterlockedIncrement(fAssertions);
   if condition then
     result := false else begin
@@ -593,7 +572,8 @@ end;
 function TSynTestCase.CheckSame(const Value1, Value2, Precision: double;
   const msg: string): Boolean;
 begin
-  result := CheckFailed(SameValue(Value1,Value2,Precision),msg);
+  result := SameValue(Value1,Value2,Precision);
+  Check(result,msg);
 end;
 
 procedure TSynTestCase.CheckMatchAny(const Value: RawUTF8;
@@ -604,16 +584,16 @@ end;
 
 procedure TSynTestCase.CheckUTF8(condition: Boolean; const msg: RawUTF8;
   const args: array of const);
-  procedure PerformFail;
+  procedure SubProcToAvoidTryFinally;
   var utf8: RawUTF8;
   begin
     FormatUTF8(msg,args,utf8);
-    TestFailed(UTF8ToString(utf8));
+    Check(condition,UTF8ToString(utf8));
   end;
 begin
-  if condition then
+  if condition and not (tcoLogEachCheck in fOptions) then
     InterlockedIncrement(fAssertions) else
-    PerformFail;
+    SubProcToAvoidTryFinally;
 end;
 
 procedure TSynTestCase.CheckLogTimeStart;
@@ -627,7 +607,7 @@ var utf8: RawUTF8;
 begin
   FormatUTF8(msg,args,utf8);
   Check(condition,UTF8ToString(utf8));
-  TSynLogTestLog.Add.Log(level,utf8+' '+fCheckLogTime.Stop);
+  TSynLogTestLog.Add.Log(level,'% %',[utf8,fCheckLogTime.Stop],self);
   fCheckLogTime.Start;
 end;
 
@@ -635,6 +615,7 @@ constructor TSynTestCase.Create(Owner: TSynTests; const Ident: string);
 begin
   inherited Create(Ident);
   fOwner := Owner;
+  fOptions := Owner.Options;
 end;
 
 procedure TSynTestCase.CleanUp;
@@ -649,62 +630,53 @@ begin
 end;
 
 class function TSynTestCase.RandomString(CharCount: Integer): RawByteString;
-var V: cardinal;
-    P: PAnsiChar;
+var i: integer;
+    R: PByteArray;
+    tmp: TSynTempBuffer;
 begin
+  R := tmp.InitRandom(CharCount);
   SetString(result,nil,CharCount);
-  P := pointer(Result);
-  while CharCount>0 do begin
-    if CharCount>5 then begin
-      V := Random(maxInt); // fast: one random compute per 5 chars
-      P[0] := AnsiChar(32+V and 127); V := V shr 7;
-      P[1] := AnsiChar(32+V and 127); V := V shr 7;
-      P[2] := AnsiChar(32+V and 127); V := V shr 7;
-      P[3] := AnsiChar(32+V and 127); V := V shr 7;
-      P[4] := AnsiChar(65+V);
-      Inc(P,5);
-      dec(CharCount,5);
-    end else begin
-      P^ := AnsiChar(32+Random(224));
-      inc(P);
-      dec(CharCount);
-    end;
-  end;
+  for i := 0 to CharCount-1 do
+    PByteArray(result)[i] := 32+R[i] and 127;
+  tmp.Done;
 end;
 
 class function TSynTestCase.RandomAnsi7(CharCount: Integer): RawByteString;
-var V: cardinal;
-    P: PAnsiChar;
+var i: integer;
+    R: PByteArray;
+    tmp: TSynTempBuffer;
 begin
+  R := tmp.InitRandom(CharCount);
   SetString(result,nil,CharCount);
-  P := pointer(Result);
-  while CharCount>0 do begin
-    if CharCount>=5 then begin
-      V := Random(maxInt); // fast: one random compute per 5 chars
-      P[0] := AnsiChar(32+V mod 94); V := V div 94;
-      P[1] := AnsiChar(32+V mod 94); V := V div 94;
-      P[2] := AnsiChar(32+V mod 94); V := V div 94;
-      P[3] := AnsiChar(32+V mod 94); V := V div 94;
-      P[4] := AnsiChar(32+V mod 94);
-      Inc(P,5);
-      dec(CharCount,5);
-    end else begin
-      P^ := AnsiChar(32+Random(94));
-      inc(P);
-      dec(CharCount);
-    end;
-  end;
+  for i := 0 to CharCount-1 do
+    PByteArray(result)[i] := 32+R[i] mod 94;
+  tmp.Done;
+end;
+
+procedure InitRandom64(chars64: PAnsiChar; count: integer; var result: RawByteString);
+var i: integer;
+    R: PByteArray;
+    tmp: TSynTempBuffer;
+begin
+  R := tmp.InitRandom(count);
+  SetString(result,nil,count);
+  for i := 0 to count-1 do
+    PByteArray(result)[i] := ord(chars64[integer(R[i]) and 63]);
+  tmp.Done;
 end;
 
 class function TSynTestCase.RandomIdentifier(CharCount: Integer): RawByteString;
-const CHARS: array[0..36] of AnsiChar =
-  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_';
+const IDENT_CHARS: array[0..63] of AnsiChar =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ_';
 begin
-  SetString(result,nil,CharCount);
-  while CharCount>0 do begin
-    dec(CharCount);
-    PAnsiChar(Pointer(result))[CharCount] := CHARS[Random(High(CHARS)+1)];
-  end;
+  InitRandom64(@IDENT_CHARS, CharCount, result);
+end;
+
+class function TSynTestCase.RandomURI(CharCount: Integer): RawByteString;
+const URL_CHARS: array[0..63] of AnsiChar =
+  'abcdefghijklmnopqrstuvwxyz0123456789-abCdEfGH.JKlmnOP.RsTuVWxyz.';
+begin
+  InitRandom64(@URL_CHARS, CharCount, result);
 end;
 
 class function TSynTestCase.RandomUTF8(CharCount: Integer): RawUTF8;
@@ -726,8 +698,9 @@ var n: integer;
     WR: TTextWriter;
     s: string[3];
     last: TKind;
+    tmp: TTextWriterStackBuffer;
 begin
-  WR := TTextWriter.CreateOwnedStream;
+  WR := TTextWriter.CreateOwnedStream(tmp);
   try
     last := paragraph;
     while WordCount>0 do begin
@@ -782,6 +755,13 @@ begin
   InterlockedIncrement(fAssertionsFailed);
 end;
 
+procedure TSynTestCase.AddConsole(const msg: string);
+begin
+  if fRunConsole<>'' then
+    fRunConsole := fRunConsole+#13#10'     '+msg else
+    fRunConsole := fRunConsole+msg;
+end;
+
 procedure TSynTestCase.NotifyTestSpeed(const ItemName: string;
   ItemCount: integer; SizeInBytes: cardinal; Timer: PPrecisionTimer);
 var Temp: TPrecisionTimer;
@@ -790,13 +770,13 @@ begin
   if Timer=nil then
     Temp := Owner.TestTimer else
     Temp := Timer^;
-  msg := format('%d %s in %s i.e. %d/s, aver. %s',
-    [ItemCount,ItemName,Temp.Stop,Temp.PerSec(ItemCount),Temp.ByCount(ItemCount)]);
+  if ItemCount <= 1 then
+    msg := format('%s in %s', [ItemName,Temp.Stop]) else
+    msg := format('%d %s in %s i.e. %d/s, aver. %s',
+      [ItemCount,ItemName,Temp.Stop,Temp.PerSec(ItemCount),Temp.ByCount(ItemCount)]);
   if SizeInBytes>0 then
     msg := format('%s, %s/s',[msg,KB(Temp.PerSec(SizeInBytes))]);
-  if fRunConsole<>'' then
-    msg := #13#10'     '+msg;
-  fRunConsole := fRunConsole+msg;
+  AddConsole(msg);
 end;
 
 
@@ -828,7 +808,7 @@ end;
 
 constructor TSynTests.Create(const Ident: string);
 begin
-  inherited;
+  inherited Create(Ident);
   fFailed := TStringList.Create;
   fTestCase := TObjectList.Create;
 end;
@@ -1051,12 +1031,14 @@ begin
   end;
   Color(ccLightCyan);
   result := (fFailed.Count=0);
-  Elapsed := #13#10#13#10'Time elapsed for all tests: '+RunTimer.Stop;
   if Exeversion.Version.Major<>0 then
-    Version := #13#10'Software version tested: '+RawUTF8(Exeversion.Version.Detailed);
+    Version := FormatUTF8(#13#10'Software version tested: % (%)',
+      [ExeVersion.Version.Detailed, ExeVersion.Version.BuildDateTimeString]);
+  FormatUTF8(#13#10#13#10'Time elapsed for all tests: %'#13#10'Performed % by % on %',
+    [RunTimer.Stop,NowToString,Exeversion.User,Exeversion.Host],Elapsed);
   Writeln(fSaveToFile,#13#10,Version,CustomVersions,
-    #13#10'Generated with: ',GetDelphiCompilerVersion,' compiler', Elapsed,
-    #13#10'Tests performed at ',DateTimeToStr(Now));
+    #13#10'Generated with: ',GetDelphiCompilerVersion,' compiler',
+    Utf8ToConsole(Elapsed));
   if result then
     Color(ccWhite) else
     Color(ccLightRed);
@@ -1089,7 +1071,7 @@ end;
 {$I+}
 
 class procedure TSynTests.RunAsConsole(const CustomIdent: string;
-  withLogs: TSynLogInfos);
+  withLogs: TSynLogInfos; options: TSynTestOptions);
 var tests: TSynTests;
 begin
   if self=TSynTests then
@@ -1101,12 +1083,13 @@ begin
     Level := withLogs;
     //DestinationPath := ExtractFilePath(paramstr(0))+'logs'; folder should exist
     PerThreadLog := ptIdentifiedInOnFile;
-    //HighResolutionTimeStamp := true;
+    //HighResolutionTimestamp := true;
     //RotateFileCount := 5; RotateFileSizeKB := 20*1024; // rotate by 20 MB logs
   end;
   // testing is performed by some dedicated classes defined in the caller units
   tests := Create(CustomIdent);
   try
+    tests.Options := options;
     if ParamCount<>0 then begin
       tests.SaveToFile(paramstr(1)); // DestPath on command line -> export to file
       Writeln(tests.Ident,#13#10#13#10' Running tests... please wait');
@@ -1137,10 +1120,8 @@ begin
   with TSynLogTestLog.Family do begin
     if integer(Level)=0 then // if no exception is set
       Level := [sllException,sllExceptionOS,sllFail];
-    {$ifdef MSWINDOWS}
     if AutoFlushTimeOut=0 then
       AutoFlushTimeOut := 2; // flush any pending text into .log file every 2 sec
-    {$endif}
     fLogFile := SynLog;
   end;
 end;

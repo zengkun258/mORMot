@@ -7,7 +7,7 @@ interface
 // if defined, will test with 5000 records instead of the default 100 records
 {.$define ADD5000}
 
-// if defined, will create the DB with one "toto" user, to validate authentication 
+// if defined, will create the DB with one "toto" user, to validate authentication
 {.$define TESTMONGOAUTH}
 
 uses
@@ -35,6 +35,7 @@ type
     procedure FillCollection;
     procedure DropCollection;
     procedure FillCollectionBulk;
+    procedure GracefulReconnect;
     procedure ReadCollection;
     procedure UpdateCollection;
     procedure DeleteSomeItems;
@@ -262,6 +263,18 @@ begin
   Check(Hash32(jsonArray)=HASH1,'projection over a collection');
 end;
 
+procedure TTestDirect.GracefulReconnect;
+var Coll: TMongoCollection;
+    jsonArray: RawUTF8;
+begin
+  fClient.Connections[0].Close; // simulate server connection close
+  Coll := fDB.Collection[COLL_NAME];
+  Check(Coll.Count=COLL_COUNT);
+  jsonArray := Coll.FindJSON(null,BSONVariant('{_id:0}'));
+  Check(JSONArrayCount(@jsonArray[2])=COLL_COUNT);
+  Check(Hash32(jsonArray)=HASH1,'projection over a collection');
+end;
+
 procedure TTestDirect.ReadCollection;
 var i: integer;
     Coll: TMongoCollection;
@@ -351,7 +364,6 @@ begin
       Check(jsonOne=VariantSaveMongoJSON(fValues[i],modMongoStrict),'delete');
     end;
 end;
-
 
 
 { TTestORM }

@@ -6,7 +6,7 @@ unit mORMotMongoDB;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotMongoDB;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -77,13 +77,14 @@ uses
   {$ifdef KYLIX3}
   LibC,
   {$endif}
-  {$ifdef HASINLINE}
+  {$ifdef HASINLINENOTX86}
   Contnrs,
   {$endif}
   SysUtils,
   Classes,
   Variants,
   SynCommons,
+  SynTable, // for TSynTableStatement
   SynLog,
   mORMot,
   SynMongoDB;
@@ -278,13 +279,14 @@ function StaticMongoDBRegisterAll(aServer: TSQLRestServer;
 /// create a new TSQLRest instance, possibly using MongoDB for its ORM process
 // - if aDefinition.Kind matches a TSQLRest registered class, one new instance
 // of this kind will be created and returned
-// - if aDefinition.Kind is 'MongoDB', it will instantiate an in-memory
-// TSQLRestServerDB or a TSQLRestServerFullMemory instance (calling
+// - if aDefinition.Kind is 'MongoDB' or 'MongoDBS', it will instantiate an
+// in-memory TSQLRestServerDB or a TSQLRestServerFullMemory instance (calling
 // TSQLRestServer.CreateInMemoryForAllVirtualTables), then call
 // StaticMongoDBRegisterAll() with a TMongoClient initialized from
-// aDefinition.ServerName ('server' or 'server:port'), and a TMongoDatabase
-// created from aDefinition.DatabaseName, using authentication if
-// aDefinition.User/Password credentials are set
+// aDefinition.ServerName ('server' or 'server:port') - optionally with TLS
+// enabled if Kind equals 'MongoDBS' - and a TMongoDatabase created from
+// aDefinition.DatabaseName, using authentication if aDefinition.User/Password
+// credentials are set
 // - it will return nil if the supplied aDefinition is invalid
 // - if aMongoDBIdentifier is not 0, then SetEngineAddComputeIdentifier()
 // would be called for all created TSQLRestStorageMongoDB
@@ -297,7 +299,7 @@ function ToText(eac: TSQLRestStorageMongoDBEngineAddComputeID): PShortString; ov
 
 implementation
 
-function ToText(eac: TSQLRestStorageMongoDBEngineAddComputeID): PShortString; 
+function ToText(eac: TSQLRestStorageMongoDBEngineAddComputeID): PShortString;
 begin
   result := GetEnumName(TypeInfo(TSQLRestStorageMongoDBEngineAddComputeID),ord(eac));
 end;
@@ -361,15 +363,19 @@ function TSQLRestMongoDBCreate(aModel: TSQLModel;
 var client: TMongoClient;
     database: TMongoDatabase;
     server,port, pwd: RawUTF8;
+    tls: boolean;
+    p: integer;
 begin
   result := nil;
   if aDefinition=nil then
     exit;
-  if SameText(aDefinition.Kind,'MongoDB') then begin
+  if IdemPChar(pointer(aDefinition.Kind),'MONGODB') then begin
     Split(aDefinition.ServerName,':',server,port);
     if (server='') or (server[1] in ['?','*']) or (aDefinition.DatabaseName='') then
       exit; // check mandatory MongoDB IP and Database
-    client := TMongoClient.Create(server,UTF8ToInteger(port,1024,65535,MONGODB_DEFAULTPORT));
+    p := UTF8ToInteger(port,1024,65535,MONGODB_DEFAULTPORT);
+    tls := ord(aDefinition.Kind[8]) in [ord('S'),ord('s')]; // 'MongoDBS'
+    client := TMongoClient.Create(server,p,tls);
     try
       with aDefinition do
         if (User<>'') and (Password<>'') then begin
@@ -1212,7 +1218,7 @@ begin
     with Stmt.Select[i] do begin
       if FunctionKnown=funcDistinct then
         continue;
-      func := TFunc(FindRawUTF8(['max','min','avg','sum','count'],FunctionName,false));
+      func := TFunc(FindPropName(['max','min','avg','sum','count'],FunctionName));
       if ord(func)<0 then begin
         InternalLog('%.EngineList: unexpected function %() in [%]',
           [ClassType,FunctionName,SQL],sllError);
@@ -1326,8 +1332,8 @@ begin // same logic as in TSQLRestStorageInMemory.EngineList()
           Res := fCollection.FindBSON(Query,Projection,limit,Stmt.Offset);
           MS := TRawByteStringStream.Create;
           try
-            W := fStoredClassRecordProps.CreateJSONWriter(
-              MS,ForceAJAX or (Owner=nil) or not Owner.NoAJAXJSON,withID,bits,0);
+            W := fStoredClassRecordProps.CreateJSONWriter(MS,
+              ForceAJAX or (Owner=nil) or not Owner.NoAJAXJSON,withID,bits,0);
             try
               ResCount := GetJSONValues(Res,extFieldNames,W);
               result := MS.DataString;

@@ -31,13 +31,15 @@ var
   bufData: pointer;
   decodedStr: RawByteString;
 begin
-  if (argc = 0) or ((argc=0) and vals[0].isVoid) then
+  if (argc = 0) or ((argc=1) and vals[0].isVoid) then
     encoding := 'utf-8'
   else
     encoding := LowerCase(vals[0].asJSString.ToUTF8(cx));
 
   if encoding = 'utf-8' then begin
     Result := cx.NewJSString(Pointer(aStr), length(aStr), CP_UTF8).ToJSVal
+  end else if encoding = 'Windows-1251' then begin
+    Result := cx.NewJSString(Pointer(aStr), length(aStr), 1251).ToJSVal
   end else if encoding = 'ucs2' then begin
     Result := cx.NewJSString(aStr).ToJSVal
   end else if encoding = 'bin2base64' then begin
@@ -77,7 +79,7 @@ begin
 
   case cx.TypeOfValue(vals[0]) of
     JSTYPE_STRING: begin
-      if (encoding = '') or (encoding = 'utf-8') then // default is utf-8
+      if (encoding = '') or (encoding = 'utf-8') or (encoding = 'utf8') then // default is utf-8
         vals[0].asJSString.ToUTF8(cx, dest)
       else if (encoding = 'ucs2') then begin
         tmp2 := vals[0].asJSString.ToSynUnicode(cx);
@@ -114,7 +116,7 @@ begin
         end else
           raise ESMException.Create('invalid encoding');
       end else begin
-        if (encoding = '') or (encoding = 'utf-8') then // default is utf-8
+        if (encoding = '') or (encoding = 'utf-8') or (encoding = 'utf8') then // default is utf-8
           vals[0].AddJSON(cx, dest)
         else
           raise ESMException.Create('invalid encoding');

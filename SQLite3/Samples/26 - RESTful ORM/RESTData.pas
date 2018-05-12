@@ -1,9 +1,12 @@
 unit RESTData;
 
+{$I Synopse.inc} // define HASINLINE and some FPC-specific options
+
 interface
 
 uses
   SynCommons,
+  SynTable, // for TSynValidate
   mORMot;
 
 type

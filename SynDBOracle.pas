@@ -6,7 +6,7 @@ unit SynDBOracle;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBOracle;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -150,6 +150,8 @@ interface
 uses
   {$ifdef MSWINDOWS}
   Windows,
+  {$else}
+  dynlibs,
   {$endif}
   SysUtils,
   {$ifndef DELPHI5OROLDER}
@@ -158,6 +160,7 @@ uses
   Classes,
   Contnrs,
   SynCommons,
+  SynTable, // for TSynTableStatement
   SynLog,
   SynDB;
 
@@ -171,7 +174,7 @@ type
   {$A-}
   /// memory structure used to store a date and time in native Oracle format
   // - follow the SQLT_DAT column type layout
-  TOracleDate = {$ifndef UNICODE}object{$else}record{$endif}
+  {$ifdef UNICODE}TOracleDate = record{$else}TOracleDate = object{$endif}
     Cent, Year, Month, Day, Hour, Min, Sec: byte;
     /// convert an Oracle date and time into Delphi TDateTime
     // - this method will ignore any date before 30 Dec 1899 (i.e. any
@@ -197,7 +200,7 @@ type
   TOracleDateArray = array[0..(maxInt div sizeof(TOracleDate))-1] of TOracleDate;
 
   /// event triggered when an expired password is detected
-  // - will allow to provide a new password 
+  // - will allow to provide a new password
   TOnPasswordExpired = function (Sender: TSQLDBConnection; var APassword: RawUTF8): Boolean of object;
 
   /// will implement properties shared by native Oracle Client Interface connections
@@ -688,8 +691,6 @@ type
   OCIDuration = ub2;
   /// The OCITypeCode type is interchangeable with the existing SQLT type which is a ub2
   OCITypeCode = ub2;
-
-  OCITypeGetOpt = (OCI_TYPEGET_HEADER, OCI_TYPEGET_ALL);
 
 const
   { OCI Handle Types }
@@ -1300,6 +1301,10 @@ const
   // To indicate error has to be taken from error handle - reserved for sqlplus use
   OCI_TYPECODE_ERRHP           = 283;
 
+  { TYPEGET options }
+  OCI_TYPEGET_HEADER = 0;
+  OCI_TYPEGET_ALL = 1;
+
   { OBJECT FREE OPTION }
   /// OCIObjectFreeFlag - Object free flag
   // - If OCI_OBJECTCOPY_FORCE is specified when freeing an instance, the instance
@@ -1420,21 +1425,21 @@ type
       stmt: text; stmt_len: ub4; key: text; key_len: ub4;
       language:ub4; mode: ub4): sword; cdecl;
     StmtRelease: function(stmtp: POCIStmt; errhp: POCIError; key: text; key_len: ub4;
-      mode: ub4):sword; cdecl;
+      mode: ub4): sword; cdecl;
     TypeByName: function(env: POCIEnv; errhp: POCIError; svchp: POCISvcCtx;
       schema_name: text; s_length: ub4; type_name: text; t_length: ub4; version_name: text; v_length: ub4;
-      pin_duration: OCIDuration; get_option: OCITypeGetOpt; var tdo: POCIType):sword; cdecl;
+      pin_duration: OCIDuration; get_option: ub4; var tdo: POCIType): sword; cdecl;
     ObjectNew: function(env: POCIEnv; errhp: POCIError; svchp: POCISvcCtx; typecode: OCITypeCode;
-      tdo: POCIType; table: dvoid; duration: OCIDuration; value: boolean; var instance: dvoid):sword; cdecl;
-    ObjectFree: function(env: POCIEnv; errhp: POCIError; instance: dvoid; flag: ub2):sword; cdecl;
+      tdo: POCIType; table: dvoid; duration: OCIDuration; value: boolean; var instance: dvoid): sword; cdecl;
+    ObjectFree: function(env: POCIEnv; errhp: POCIError; instance: dvoid; flag: ub2): sword; cdecl;
     NumberFromInt: function(errhp: POCIError; inum: dvoid; inum_length: uword; inum_s_flag: uword;
-      var number: OCINumber):sword; cdecl;
+      var number: OCINumber): sword; cdecl;
     StringAssignText : function(env: POCIEnv; errhp: POCIError; rhs: OraText; rhs_len: ub4;
-      var lhs: POCIString):sword; cdecl;
+      var lhs: POCIString): sword; cdecl;
     CollAppend: function(env: POCIEnv; errhp: POCIError; elem: dvoid; elemind: dvoid;
-      coll: POCIColl):sword; cdecl;
+      coll: POCIColl): sword; cdecl;
     BindObject: function(bindp: POCIBind; errhp: POCIError; type_: POCIType; var pgvpp: dvoid;
-      pvszsp: pub4; indpp: pdvoid; indszp: pub4):sword; cdecl;
+      pvszsp: pub4; indpp: pdvoid; indszp: pub4): sword; cdecl;
     PasswordChange: function(svchp: POCISvcCtx; errhp: POCIError; const user_name: text; usernm_len: ub4;
       const opasswd: text; opasswd_len: ub4; const npasswd: text; npasswd_len: sb4; mode: ub4): sword; cdecl;
   public
@@ -1702,29 +1707,6 @@ const
     (Num: 1252; Charset: 46;  Text: 'WE8ISO8859P15'),
     (Num: 1252; Charset: 31;  Text: 'WE8ISO8859P1'));
 
-function EnvVariableToCodePage: cardinal;
-{$ifdef MSWINDOWS}
-var i: integer;
-    nlslang: array[byte] of AnsiChar;
-begin
-  i := GetEnvironmentVariableA('NLS_LANG',nlslang,sizeof(nlslang));
-  if i=0 then
-    result := GetACP else begin
-    nlslang[i] := #0;
-    for i := 0 to high(CODEPAGES) do
-      if ContainsUTF8(nlslang,CODEPAGES[i].Text) then begin
-        result := CODEPAGES[i].Num;
-        exit;
-      end;
-    result := GetACP;
-  end;
-end;
-{$else}
-begin
-  result := GetACP;
-end;
-{$endif}
-
 function SimilarCharSet(aCharset1, aCharset2: cardinal): Boolean;
 var i1,i2: integer;
 begin
@@ -1768,20 +1750,14 @@ function TSQLDBOracleLib.CodePageToCharSetID(env: pointer;
   aCodePage: cardinal): cardinal;
 var ocp: PUTF8Char;
     i: integer;
-    {$ifdef MSWINDOWS}
-    nlslang: array[byte] of AnsiChar;
-    {$endif}
+    nlslang: AnsiString;
 begin
   case aCodePage of
   0: begin
-    {$ifdef MSWINDOWS}
-    i := GetEnvironmentVariableA('NLS_LANG',nlslang,sizeof(nlslang));
-    if i>0 then begin
-      nlslang[i] := #0;
-      result := NlsCharSetNameToID(env,nlslang);
-    end else
-    {$endif}
-      result := CodePageToCharSetID(env,GetACP);
+      nlslang := AnsiString(GetEnvironmentVariable('NLS_LANG'));
+      if nlslang<>'' then
+        result := NlsCharSetNameToID(env,pointer(nlslang)) else
+        result := CodePageToCharSetID(env,GetACP);
   end;
   CP_UTF8:
     result := OCI_UTF8;
@@ -1801,37 +1777,45 @@ begin
     result := OCI_WE8MSWIN1252;
 end;
 
+{$ifndef MSWINDOWS}
+function SafeLoadLibrary(const aFileName: TFileName): HMODULE;
+begin
+ result := LoadLibrary(PAnsiChar(AnsiString(aFileName)));
+end;
+{$endif}
+
 constructor TSQLDBOracleLib.Create;
+const LIBNAME = {$ifdef MSWINDOWS}'oci.dll'{$else}'libclntsh.so'{$endif};
 var P: PPointer;
     i: integer;
     orhome: string;
 begin
-  fLibraryPath := 'oci.dll';
+  fLibraryPath := LIBNAME;
   if (SynDBOracleOCIpath<>'') and DirectoryExists(SynDBOracleOCIpath) then
-    fLibraryPath := ExtractFilePath(ExpandFileName(SynDBOracleOCIpath+'\'))+fLibraryPath;
+    fLibraryPath := ExtractFilePath(ExpandFileName(SynDBOracleOCIpath+PathDelim))+fLibraryPath;
   fHandle := SafeLoadLibrary(fLibraryPath);
   if fHandle=0 then begin
     if fHandle=0 then begin
       orhome := GetEnvironmentVariable('ORACLE_HOME');
       if orhome<>'' then begin
-        fLibraryPath := IncludeTrailingPathDelimiter(orhome)+'bin\oci.dll';
+        fLibraryPath := IncludeTrailingPathDelimiter(orhome)+'bin'+PathDelim+LIBNAME;
         fHandle := SafeLoadLibrary(fLibraryPath);
       end;
     end;
   end;
   if fHandle=0 then begin
-    fLibraryPath := ExeVersion.ProgramFilePath+'OracleInstantClient\oci.dll';
+    fLibraryPath := ExeVersion.ProgramFilePath+'OracleInstantClient'+PathDelim+LIBNAME;
     fHandle := SafeLoadLibrary(fLibraryPath);
   end;
   if fHandle=0 then
-    raise ESQLDBOracle.Create('Unable to find Oracle Client Interface (oci.dll)');
+    raise ESQLDBOracle.Create('Unable to find Oracle Client Interface '+LIBNAME);
   P := @@ClientVersion;
   for i := 0 to High(OCI_ENTRIES) do begin
     P^ := GetProcAddress(fHandle,OCI_ENTRIES[i]);
     if P^=nil then begin
       FreeLibrary(fHandle);
       fHandle := 0;
-      raise ESQLDBOracle.CreateFmt('Invalid oci.dll: missing %s',[OCI_ENTRIES[i]]);
+      raise ESQLDBOracle.CreateUTF8('Invalid %: missing %',[LIBNAME,OCI_ENTRIES[i]]);
     end;
     inc(P);
   end;
@@ -1909,6 +1893,7 @@ begin
     result := inherited SQLLimitClause(AStmt);
 end;
 
+
 { TSQLDBOracleConnection }
 
 procedure TSQLDBOracleConnection.Commit;
@@ -1935,7 +1920,7 @@ const
     type_Varchar2ListName: RawUTF8 = 'ODCIVARCHAR2LIST';
     type_Credential: array[boolean] of integer = (OCI_CRED_RDBMS,OCI_CRED_EXT);
 begin
-  Log := SynDBLog.Enter(self);
+  Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Connect'{$endif});
   Disconnect; // force fTrans=fError=fServer=fContext=nil
   Props := Properties as TSQLDBOracleConnectionProperties;
   with OCI do
@@ -2027,7 +2012,7 @@ end;
 constructor TSQLDBOracleConnection.Create(aProperties: TSQLDBConnectionProperties);
 var Log: ISynLog;
 begin
-  Log := SynDBLog.Enter(self);
+  Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Create'{$endif});
   if not aProperties.InheritsFrom(TSQLDBOracleConnectionProperties) then
     raise ESQLDBOracle.CreateUTF8('Invalid %.Create(%)',[self,aProperties]);
   OCI.RetrieveVersion;
@@ -2042,13 +2027,14 @@ begin
 end;
 
 procedure TSQLDBOracleConnection.Disconnect;
+var Log: ISynLog;
 begin
   try
     inherited Disconnect; // flush any cached statement
   finally
     if (fError<>nil) and (OCI<>nil) then
     with OCI do begin
-      SynDBLog.Enter(self);
+      Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'Disconnect'{$endif});
       if fTrans<>nil then begin
         // close any opened session
         HandleFree(fTrans,OCI_HTYPE_TRANS);
@@ -2132,7 +2118,7 @@ end;
 procedure TSQLDBOracleConnection.StartTransaction;
 var Log: ISynLog;
 begin
-  Log := SynDBLog.Enter(self);
+  Log := SynDBLog.Enter(self{$ifndef DELPHI5OROLDER},'StartTransaction'{$endif});
   if TransactionCount>0 then
     raise ESQLDBOracle.CreateUTF8('Invalid %.StartTransaction: nested '+
       'transactions are not supported by the Oracle driver',[self]);
@@ -2179,7 +2165,6 @@ begin
     result := CurrentAnsiConvert.AnsiToAnsi(fAnsiConvert,P,L);
 end;
 {$endif}
-
 
 
 { TSQLDBOracleStatement }
@@ -3414,7 +3399,7 @@ begin
       fTimeElapsed.Resume;
       try
 {      if OCI.major_version<9 then
-        raise ESQLDBOracle.CreateFmt('Oracle Client %s does not support OCI_FETCH_FIRST',
+        raise ESQLDBOracle.CreateUTF8('Oracle Client % does not support OCI_FETCH_FIRST',
           [OCI.ClientRevision]); }
         status := OCI.StmtFetch(fStatement,fError,fRowCount,OCI_FETCH_FIRST,OCI_DEFAULT);
         FetchTest(Status); // error + set fRowCount+fRowFetchedCurrent

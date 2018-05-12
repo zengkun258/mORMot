@@ -3,7 +3,8 @@ unit ufrmSM45Demo;
 interface
 
 uses
-  Windows, Messages, SysUtils, Variants, Classes, Graphics,
+  {$IFNDEF LCL}Windows,{$ELSE}LclIntf, LMessages, LclType, LResources,{$ENDIF}
+  Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, StdCtrls,
 
   SynCommons,
@@ -56,7 +57,7 @@ implementation
 procedure TfrmSM45Demo.FormCreate(Sender: TObject);
 begin
   // create a JavaScript angine manager
-  FSMManager := TSMEngineManager.Create(StringToUTF8(RelToAbs(ExeVersion.ProgramFilePath, '..\..\core_modules')));
+  FSMManager := TSMEngineManager.Create(StringToUTF8(RelToAbs(ExeVersion.ProgramFilePath, '../../core_modules')));
   // optionaly increase a max engine memory
   FSMManager.MaxPerEngineMemory := 512 * 1024 * 1024;
   // add a handler called every time new engine is created
@@ -83,6 +84,8 @@ procedure TfrmSM45Demo.btnEvaluateClick(Sender: TObject);
 var
   res: jsval;
 begin
+  if FEngine = nil then
+    raise Exception.Create('JS engine not initialized');
   // evaluate a text from mSource memo
   if mSource.SelText <> '' then
     FEngine.Evaluate(mSource.SelText, 'mSourceSelected.js', 1, res)
@@ -92,13 +95,22 @@ end;
 
 procedure TfrmSM45Demo.cmd_Itenterupt(var aMessage: TMessage);
 begin
+  if FEngine = nil then
+    raise Exception.Create('JS engine not initialized');
+{$IFDEF SM52}
+  FEngine.cx.RequestInterruptCallback;
+  FEngine.cx.CheckForInterrupt;
+{$ELSE}
   FEngine.rt.InterruptCallback(FEngine.cx);
+{$ENDIF}
 end;
 
 procedure TfrmSM45Demo.doInteruptInOwnThread;
 begin
   PostMessage(Self.Handle, WM_DEBUG_INTERRUPT, 0, 0);
+  {$IFNDEF FPC}
   Application.ProcessMessages;
+  {$ENDIF}
 end;
 
 function TfrmSM45Demo.toLog(cx: PJSContext; argc: uintN; var vp: JSArgRec): Boolean;
@@ -126,26 +138,36 @@ type
 
 procedure TfrmSM45Demo.DoOnCreateNewEngine(const aEngine: TSMEngine);
 begin
-  aEngine.doInteruptInOwnThread := doInteruptInOwnThread;
-  // in XE actual class of TMemo.lines is TMemoStrings - let's force it to be a TStrings like
-  aEngine.defineClass(mSource.lines.ClassType, TStringsProto, aEngine.GlobalObject);
-  // define a propery mainForm in the JavaScript
-  aEngine.GlobalObject.ptr.DefineProperty(aEngine.cx, 'mainForm',
-    // proeprty value is a wrapper around the Self
-    CreateJSInstanceObjForSimpleRTTI(aEngine.cx, Self, aEngine.GlobalObject),
-    // we can enumerate this property, it read-only and can not be deleted
-    JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT
-  );
+  // for main thread only. Worker threads do not need this
+  if GetCurrentThreadId = MainThreadID then begin
+    aEngine.doInteruptInOwnThread := doInteruptInOwnThread;
+    // in XE actual class of TMemo.lines is TMemoStrings - let's force it to be a TStrings like
+    aEngine.defineClass(mSource.lines.ClassType, TStringsProto, aEngine.GlobalObject);
+    // define a propery mainForm in the JavaScript
+    aEngine.GlobalObject.ptr.DefineProperty(aEngine.cx, 'mainForm',
+      // proeprty value is a wrapper around the Self
+      CreateJSInstanceObjForSimpleRTTI(aEngine.cx, Self, aEngine.GlobalObject),
+      // we can enumerate this property, it read-only and can not be deleted
+      JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT
+    );
+  end;
 end;
 
 function TfrmSM45Demo.DoOnGetEngineName(const aEngine: TSMEngine): RawUTF8;
 begin
-  result := 'Form Engine';
+  if GetCurrentThreadId = MainThreadID then
+    result := 'FormEngine';
 end;
 
 procedure TfrmSM45Demo.DoOnJSDebuggerInit(const aEngine: TSMEngine);
 begin
-  aEngine.EvaluateModule(RelToAbs(ExeVersion.ProgramFilePath, 'ExtendDebuggerConsole.js'));
+  aEngine.EvaluateModule(
+  {$IFDEF MSWINDOWS}
+    '..\..\..\..\DebuggerInit.js'
+  {$ELSE}
+    '../../../../DebuggerInit.js'
+  {$ENDIF}
+  );
 end;
 
 { TStringsProto }

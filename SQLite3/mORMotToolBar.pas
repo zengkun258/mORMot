@@ -9,7 +9,7 @@ interface
 
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2017 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -28,12 +28,12 @@ interface
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2017
+  Portions created by the Initial Developer are Copyright (C) 2018
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
   - kevinday
-  
+
   Alternatively, the contents of this file may be used under the terms of
   either the GNU General Public License Version 2 or later (the "GPL"), or
   the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
@@ -334,7 +334,7 @@ type
   TSQLLister = class;
 
   /// this event is called when a button is pressed
-  // - here ActionValue contains the ordinal value of the custom button 
+  // - here ActionValue contains the ordinal value of the custom button
   TSQLListerEvent = procedure(Sender: TObject;
     RecordClass: TSQLRecordClass;
     ActionValue: integer) of object;
@@ -794,7 +794,8 @@ procedure CreateReportWithIcons(ParamsEnum: PTypeInfo; ImgList: TImageList;
   const Title, Hints: string; StartIndexAt: integer);
 
 /// load a bitmap from a .png/.jpg file embedded as a resource to the executable
-function LoadBitmapFromResource(const ResName: string): TBitmap;
+// - you can specify a library (dll) resource instance handle, if needed
+function LoadBitmapFromResource(const ResName: string; Instance: THandle=0): TBitmap;
 
 /// fill a TImageList from the content of another TImageList
 // - stretching use GDI+ so is smooth enough for popup menu display
@@ -1063,7 +1064,7 @@ var TypeName: PShortString;
       PTypeInfo(TypeInfo(TSQLAction))^.EnumBaseType^.GetEnumName(A2)),
       iAction,nil,iAction-1,integer(A2));
   end;
-  
+
 begin
   result := nil;
   if fPage=nil then
@@ -1133,7 +1134,7 @@ begin
             if TSQLAction(iAction)=actMark then begin // Mark sub-menu
               InsertSubMenu(actmarkAllEntries);
               InsertSubMenu(actmarkInverse);
-              if TableToGrid.FieldIndexTimeLogForMark>=0 then 
+              if TableToGrid.FieldIndexTimeLogForMark>=0 then
                 for A2 := actmarkToday to actmarkOlderThanOneYear do begin
                   if A2 in [actmarkToday,actmarkOlderThanOneDay] then
                     CreateSubMenuItem('-',iAction,nil);
@@ -1847,14 +1848,16 @@ end;
 
 {$endif USETMSPACK}
 
-function LoadBitmapFromResource(const ResName: string): TBitmap;
+function LoadBitmapFromResource(const ResName: string; Instance: THandle): TBitmap;
 var Pic: TSynPicture;
 begin
+  if Instance=0 then
+    Instance := HInstance;
   result := TBitmap.Create;
   try
     Pic := TSynPicture.Create;
     try
-      Pic.LoadFromResourceName(HInstance,ResName); // *.png
+      Pic.LoadFromResourceName(Instance,ResName); // *.png
       result.Width := Pic.Width;
       result.Height := Pic.Height;
       result.Canvas.Draw(0,0,Pic);
