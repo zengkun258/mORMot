@@ -590,10 +590,9 @@ begin
     else
     begin
       size := FileSize(filePath);
-      if Int64Rec(size).Hi > 0 then
+      if PInt64Rec(@size)^.Hi > 0 then
         raise ESMException.Create('file to large');
-
-      arr := cx.NewArrayBuffer(Int64Rec(size).Lo);
+      arr := cx.NewArrayBuffer(PInt64Rec(@size)^.Lo);
       arr_data := arr.GetArrayBufferData;
       fFileStream := TFileStream.Create(filePath, fmOpenRead or fmShareDenyNone);
       try
@@ -671,7 +670,7 @@ begin
     end;
 
     stream := TFileStream.Create(filePath, fmOpenReadWrite);
-    stream.Seek(0, soFromEnd);
+    stream.Seek(0, soEnd);
     writer := SynCommons.TTextWriter.Create(stream, 65536);
     try
       vp.rval := SyNodeReadWrite.SMWrite_impl(cx, argc - 1, @in_argv[1], writer);

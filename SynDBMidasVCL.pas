@@ -6,7 +6,7 @@ unit SynDBMidasVCL;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynDBMidasVCL;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -47,19 +47,9 @@ unit SynDBMidasVCL;
 
   ***** END LICENSE BLOCK *****
 
-  Version 1.18
-  - first public release, corresponding to Synopse mORMot Framework 1.18,
-    which is an extraction from former SynDBVCL.pas unit (which is faster
-    but read/only)
-  - introducing TSynDBDataSet (under Delphi), which allows to apply updates:
-    will be used now for overloaded ToClientDataSet() functions result
-  - BREAKING CHANGE: QueryToClientDataSet() and StatementToClientDataSet()
-    renamed as overloaded functions ToClientDataSet()
-
-
 }
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64 OWNNORMTOUPPER
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
 
 interface
 
@@ -214,6 +204,7 @@ type
 function ToClientDataSet(aOwner: TComponent; aStatement: SynDB.TQuery;
   aMaxRowCount: integer=0): TSynDBDataSet; overload;
 
+{$ifndef FPC}
 /// fetch a SynDB TSQLDBStatement result set into a new VCL TClientDataSet
 // - if aMaxRowCount>0, will return up to the specified number of rows
 // - current implementation will return a TClientDataSet instance, created from
@@ -225,6 +216,7 @@ function ToClientDataSet(aOwner: TComponent; aStatement: SynDB.TQuery;
 // much less resources
 function ToClientDataSet(aOwner: TComponent; aStatement: TSQLDBStatement;
   aMaxRowCount: integer=0): TSynDBDataSet; overload;
+{$endif FPC}
 
 /// fetch a SynDB ISQLDBRows result set into a new VCL TClientDataSet
 // - this overloaded function can use directly a result of the
@@ -280,6 +272,7 @@ begin
     result := ToClientDataSet(aOwner,aStatement.PreparedSQLDBStatement.Instance,aMaxRowCount);
 end;
 
+{$ifndef FPC}
 function ToClientDataSet(aOwner: TComponent; aStatement: TSQLDBStatement;
   aMaxRowCount: integer): TSynDBDataSet;
 begin
@@ -294,6 +287,7 @@ begin
       FreeAndNil(result);
   end;
 end;
+{$endif FPC}
 
 function ToClientDataSet(aOwner: TComponent; aStatement: ISQLDBRows;
   aMaxRowCount: integer=0): TSynDBDataSet; overload;

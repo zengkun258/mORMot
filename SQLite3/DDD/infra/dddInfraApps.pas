@@ -6,7 +6,7 @@ unit dddInfraApps;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit dddInfraApps;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -45,16 +45,13 @@ unit dddInfraApps;
 
   ***** END LICENSE BLOCK *****
 
-  Version 1.18
-  - first public release, corresponding to Synopse mORMot Framework 1.18
-
   TODO:
-   - store settings in database
+   - store settings in database, or a centralized service?
    - allow to handle authentication via a centralized service or REST server
 
 }
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64 OWNNORMTOUPPER
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
 
 interface
 
@@ -71,6 +68,7 @@ uses
   Classes,
   Variants,
   SynCommons,
+  SynTable,
   SynLog,
   SynCrypto,
   SynEcc,
@@ -261,13 +259,14 @@ type
   protected
     fORM: TSynConnectionDefinition;
     fClient: TDDDRestClientDefinition;
-    fTimeout: integer;
+    fTimeout, fWebSocketsLoopDelay: integer;
   public
     /// set the default values for Client.Root, ORM.ServerName,
     // Client.WebSocketsPassword and ORM.Password
     procedure SetDefaults(const Root, Port, WebSocketPassword, UserPassword: RawUTF8;
       const User: RawUTF8 = 'User'; const Server: RawUTF8 = 'localhost';
-      ForceSetCredentials: boolean = false; ConnectRetrySeconds: integer = 0);
+      ForceSetCredentials: boolean = false; ConnectRetrySeconds: integer = 0;
+      WebSocketsLoopDelayMS: integer = 0);
     /// is able to instantiate a Client REST instance for the stored definition
     // - Definition.Kind is expected to specify a TSQLRestClient class to be
     // instantiated, not a TSQLRestServer instance
@@ -284,6 +283,8 @@ type
       out aPasswordHashed: boolean): boolean;
     /// you can overload here the TCP timeout delay, in seconds
     property Timeout: integer read fTimeout write fTimeout;
+    /// you can overload here the WebSockets internal loop delay, in milliseconds
+    property WebSocketsLoopDelay: integer read fWebSocketsLoopDelay write fWebSocketsLoopDelay;
   published
     /// defines a mean of access to a TSQLRest instance
     // - using Kind/ServerName/DatabaseName/User/Password properties: Kind
@@ -594,7 +595,8 @@ type
     procedure ExecuteDisconnect;
     procedure ExecuteDisconnectAfterError;
     procedure ExecuteSocket;
-    function TrySend(const aFrame: RawByteString; ImmediateDisconnectAfterError: boolean = true): Boolean; virtual;
+    function TrySend(const aFrame: RawByteString;
+      ImmediateDisconnectAfterError: boolean = true): Boolean; virtual;
     // inherited classes could override those methods for process customization
     procedure InternalExecuteConnected; virtual;
     procedure InternalExecuteDisconnect; virtual;
@@ -715,8 +717,13 @@ type
 // unserialized from JSON into aContent object instance
 // - user@host.* files are searched in the executable folder if aSearchFolder='',
 // but you may specify a custom location, e.g. use ECCKeyFileFolder
-// - will use the supplied parameters to restrict this authorization to
-// a specific product, using dedicated applock.public/.private keys pair
+// - aSecretPass could be entered by the end-user, to authenticate its identity;
+// you may specify a string constant if local applock.public/.private key files
+// is enough secure for your application
+// - will use the supplied aDPAPI/aDecryptSalt parameters to restrict
+// this authorization to a specific product (i.e. isolate the execution context
+// to reduce forensic scope), for dedicated applock.public/.private keys pair -
+// just pass some application-specific string constant to those parameters
 // - aSecretInfo^ could be set to retrieve the user@host.secret information
 // (e.g. validity dates), and aLocalFile^ the'<fullpath>user@host' file prefix 
 function ECCAuthorize(aContent: TObject; aSecretDays: integer; const aSecretPass,
@@ -772,9 +779,10 @@ begin
   SQLite3Log.Add.LogThreadName('Service Start Handler', true);
   {$endif}
   log := SQLite3Log.Enter(self, 'DoStart');
-  with ExeVersion do
-    log.Log(sllNewRun, 'Daemon Start svc=% ver=% usr=%',
-      [fSettings.ServiceName, Version.Detailed, LowerCase(User)], self);
+  if log<>nil then
+    with ExeVersion do
+      log.Log(sllNewRun, 'Daemon Start svc=% ver=% usr=%',
+        [fSettings.ServiceName, Version.Detailed, LowerCase(User)], self);
   {$endif}
   fDaemon := NewDaemon;
   res := fDaemon.Start;
@@ -790,8 +798,9 @@ begin
   SQLite3Log.Add.LogThreadName('Service Stop Handler', true);
   {$endif}
   log := SQLite3Log.Enter(self, 'DoStop');
-  log.Log(sllNewRun, 'Daemon Stop svc=% ver=% usr=%', [fSettings.ServiceName,
-    ExeVersion.Version.Detailed, LowerCase(ExeVersion.User)], self);
+  if log<>nil then
+    log.Log(sllNewRun, 'Daemon Stop svc=% ver=% usr=%', [fSettings.ServiceName,
+      ExeVersion.Version.Detailed, LowerCase(ExeVersion.User)], self);
 {$else}
 begin
 {$endif}
@@ -834,7 +843,7 @@ var
 begin
   tix := GetTickCount64 + TimeoutMS;
   repeat
-    sleep(50);
+    SleepHiRes(50);
     result := Daemon <> nil;
   until result or (GetTickCount64 > tix);
 end;
@@ -858,7 +867,8 @@ type
 procedure TDDDDaemon.ExecuteCommandLine(ForceRun: boolean);
 var
   name, param: RawUTF8;
-  passwords: RawByteString;
+  p: PUTF8Char;
+  passwords, exe: RawByteString;
   cmd: TExecuteCommandLineCmd;
   daemon: TDDDAdministratedDaemon;
   {$ifdef MSWINDOWS}
@@ -889,7 +899,7 @@ var
       B := pointer(GetNextLine(P,P));
       if B=nil then
         exit;
-      fn := format('%s%s.settings', [folder, GetNextItem(B, '=')]);
+      fn := FormatString('%%.settings', [folder, GetNextItem(B, '=')]);
       doc.InitJSONFromFile(fn, JSON_OPTIONS_FAST, true);
       modified := false;
       if doc.Count > 0 then
@@ -949,12 +959,12 @@ var
     end
     else begin
       error := GetLastError;
-      msg := FormatUTF8('Error % "%" occured with',
+      msg := FormatUTF8('Error % [%] occured with',
         [error, StringToUTF8(SysErrorMessage(error))]);
       TextColor(ccLightRed);
       ExitCode := 1; // notify error to caller batch
     end;
-    msg := FormatUTF8('% "%" (%) on Service "%"',
+    msg := FormatUTF8('% [%] (%) on Service [%]',
       [msg, param, cmdText, fSettings.ServiceName]);
     writeln(msg);
     AppendToTextFile(ExeVersion.User + ' ' +msg,
@@ -1005,8 +1015,11 @@ begin
       param := trim(StringToUTF8(paramstr(1)));
     if (param = '') or not (param[1] in ['/', '-']) then
       cmd := cNone
-    else
-      case NormToUpper[param[2]] of
+    else begin
+      p := @param[2];
+      if p^ = '-' then // allow e.g. --fork switch (idem to /f -f /fork -fork)
+        inc(p);
+      case NormToUpper[p^] of
         'C':
           cmd := cConsole;
         'D':
@@ -1018,18 +1031,22 @@ begin
         'K':
           cmd := cKill;
       else
-        byte(cmd) := ord(cInstall) + IdemPCharArray(@param[2],
+        byte(cmd) := ord(cInstall) + IdemPCharArray(p,
           ['INST', 'UNINST', 'START', 'STOP', 'STAT', 'VERS', 'VERB', 'HELP',
            'HARDEN', 'PLAIN']);
       end;
+    end;
     case cmd of
       cHelp:
         Syntax;
       cVersion:
         begin
+          exe := StringFromFile(ExeVersion.ProgramFileName);
           writeln(' ', ExeVersion.ProgramFileName,
-            #13#10' Size: ', FileSize(ExeVersion.ProgramFileName), ' bytes' +
-            #13#10' Build date: ', ExeVersion.Version.BuildDateTimeString);
+            #13#10' Size: ', length(exe), ' bytes (', KB(exe), ')' +
+            #13#10' Build date: ', ExeVersion.Version.BuildDateTimeString,
+            #13#10' MD5: ', MD5(exe),
+            #13#10' SHA256: ', SHA256(exe));
           if ExeVersion.Version.Version32 <> 0 then
             writeln(' Version: ', ExeVersion.Version.Detailed);
           TextColor(ccCyan);
@@ -1105,11 +1122,17 @@ begin
                 Syntax;
             cInstall:
               begin
-                if (ParamCount >= 3) and SameText(ParamStr(2), '/depend') then begin
+                if ServiceDependencies <> nil then begin
+                  depend := ServiceDependencies[0];
+                  for i := 1 to high(ServiceDependencies) do
+                    depend := depend + #0 + ServiceDependencies[i];
+                end else if (ParamCount >= 3) and SameText(ParamStr(2), '/depend') then begin
                   depend := ParamStr(3);
                   for i := 4 to ParamCount do
                     depend := depend + #0 + ParamStr(i);
                 end;
+                if depend <> '' then
+                  depend := depend + #0; // ensure ends with dual #0
                 Show(TServiceController.Install(ServiceName, ServiceDisplayName,
                   Description, ServiceAutoStart, '', depend) <> ssNotInstalled);
               end;
@@ -1142,7 +1165,7 @@ begin
       RunUntilSigTerminated(self, (cmd=cFork), DoStart, DoStop
         {$ifdef WITHLOG},SQLite3Log.Add, fSettings.ServiceName{$endif});
     cKill:
-      if not RunUntilSigTerminatedForkKill then
+      if not RunUntilSigTerminatedForKill then
         raise EServiceException.Create('No forked process found to be killed');
     else
       Syntax;
@@ -1323,7 +1346,7 @@ begin
   Terminate;
   timeOut := GetTickCount64 + 10000;
   repeat // wait until properly disconnected from remote TCP server
-    Sleep(10);
+    SleepHiRes(10);
   until (fMonitoring.State = tpsDisconnected) or (GetTickCount64 > timeOut);
   inherited Destroy;
   if fMonitoring.fOwner=self then
@@ -1356,15 +1379,17 @@ begin
     fMonitoring.State := tpsConnected; // to be done ASAP to allow sending
     InternalExecuteConnected;
     {$ifdef WITHLOG}
-    log.Log(sllTrace, 'ExecuteConnect: Connected via Socket % - %',
-      [fSocket.Identifier, fMonitoring], self);
+    if log<>nil then
+      log.Log(sllTrace, 'ExecuteConnect: Connected via Socket % - %',
+        [fSocket.Identifier, fMonitoring], self);
     {$endif}
   except
     on E: Exception do begin
       fMonitoring.ProcessException(E);
       {$ifdef WITHLOG}
-      log.Log(sllTrace, 'ExecuteConnect: Impossible to Connect to %:% (%) %',
-        [Host, Port, E.ClassType, fMonitoring], self);
+      if log<>nil then
+        log.Log(sllTrace, 'ExecuteConnect: Impossible to Connect to %:% (%) %',
+          [Host, Port, E.ClassType, fMonitoring], self);
       {$endif}
       fSocket := nil;
       fMonitoring.State := tpsDisconnected;
@@ -1375,9 +1400,11 @@ begin
       Terminate
     else if fSettings.ConnectionAttemptsInterval > 0 then // on error, retry
       if SleepOrTerminated(fSettings.ConnectionAttemptsInterval * 1000) then
-      {$ifdef WITHLOG}
-        log.Log(sllTrace, 'ExecuteConnect: thread terminated', self)
-      else
+      {$ifdef WITHLOG} begin
+        if log<>nil then
+          log.Log(sllTrace, 'ExecuteConnect: thread terminated', self)
+      end
+      else if log<>nil then
         log.Log(sllTrace, 'ExecuteConnect: wait finished -> retry connect', self)
       {$endif};
 end;
@@ -1407,7 +1434,8 @@ begin
         fSocket := nil;
       end;
       {$ifdef WITHLOG}
-      log.Log(sllTrace, 'Socket % disconnected', [info], self);
+      if log<>nil then
+        log.Log(sllTrace, 'Socket % disconnected', [info], self);
       {$endif}
       InternalLogMonitoring;
     finally
@@ -1417,7 +1445,8 @@ begin
     on E: Exception do begin
       fMonitoring.ProcessException(E);
       {$ifdef WITHLOG}
-      log.Log(sllTrace, 'Socket disconnection error (%)', [E.ClassType], self);
+      if log<>nil then
+        log.Log(sllTrace, 'Socket disconnection error (%)', [E.ClassType], self);
       {$endif}
     end;
   end;
@@ -1472,7 +1501,7 @@ begin
       else if fPerformConnection then
         ExecuteConnect
       else
-        sleep(100);
+        SleepHiRes(100);
       if Terminated then
         break;
       try
@@ -1532,7 +1561,7 @@ begin
     fRest.LogClass.Add.Log(sllDebug, 'Shutdown: % will stop any communication ' +
       'with %:%', [ClassType, fHost, fPort], self);
     if andTerminate and not Terminated then begin
-      sleep(100);
+      SleepHiRes(100);
       Terminate;
       WaitFor;
     end;
@@ -1636,7 +1665,7 @@ function TDDDSynCrtSocket.DataInPending(aTimeOut: integer): integer;
 begin
   fSafe.Lock;
   try
-    result := fSocket.SockInPending(aTimeOut,true); // aSocketForceCheck=true
+    result := fSocket.SockInPending(aTimeOut,{aPendingAlsoInSocket=}true);
   finally
     fSafe.UnLock;
   end;
@@ -1738,7 +1767,7 @@ begin
     if (result <> 0) or ((fOwner <> nil) and TSQLRestThread(fOwner).Terminated)
       or (aTimeOut = 0) then
       break;
-    sleep(1); // emulate blocking process, just like a regular socket
+    SleepHiRes(1); // emulate blocking process, just like a regular socket
     if (fOwner <> nil) and TSQLRestThread(fOwner).Terminated then
       break;
   until GetTickCount64 > endTix; // warning: 10-16 ms resolution under Windows
@@ -1824,7 +1853,7 @@ begin
     exit;
   fExceptionActions := [];
   if fExceptionMessage = '' then
-    fExceptionMessage := Format('Mocked Exception for %s', [ToText(Action)^]);
+    FormatString('Mocked Exception for %', [ToText(Action)^], fExceptionMessage);
   if fExceptionClass = nil then
     fExceptionClass := EDDDMockedSocket;
   raise fExceptionClass.Create(fExceptionMessage);
@@ -1855,9 +1884,8 @@ begin
   finally
     fSafe.UnLock; // wait outside the instance lock
   end;
-  while (waitMS > 0) and not ((fOwner <> nil) and TSQLRestThread(fOwner).Terminated)
-    do begin
-    sleep(1); // do not use GetTickCount64 (poor resolution under Windows)
+  while (waitMS > 0) and not ((fOwner <> nil) and TSQLRestThread(fOwner).Terminated) do begin
+    SleepHiRes(1); // do not use GetTickCount64 (poor resolution under Windows)
     dec(waitMS);
   end;
 end;
@@ -1956,7 +1984,7 @@ end;
 
 procedure TDDDRestClientSettings.SetDefaults(const Root, Port, WebSocketPassword,
   UserPassword, User, Server: RawUTF8; ForceSetCredentials: boolean;
-  ConnectRetrySeconds: integer);
+  ConnectRetrySeconds, WebSocketsLoopDelayMS: integer);
 begin
   if fClient.Root = '' then
     fClient.Root := Root;
@@ -1966,14 +1994,17 @@ begin
     else
       fORM.Kind := TSQLHttpClient.ClassName;
   if ForceSetCredentials or (fORM.ServerName = '') then begin
-    if (fORM.ServerName = '') and (Port <> '') then
-      if Server = '' then
-        fORM.ServerName := 'http://localhost:' + Port else
-        if PosEx(':', Server) = 0 then
-          fORM.ServerName := 'http://' + Server + ':' + Port else
-          fORM.ServerName := Server;
+    if fORM.ServerName = '' then
+      if Port = '' then
+        fORM.ServerName := Server else
+        if Server = '' then
+          fORM.ServerName := 'http://localhost:' + Port else
+          if PosExChar(':', Server) = 0 then
+            fORM.ServerName := 'http://' + Server + ':' + Port else
+            fORM.ServerName := Server;
     if fClient.WebSocketsPassword = '' then
       fClient.WebSocketsPassword := WebSocketPassword;
+    fWebSocketsLoopDelay := WebSocketsLoopDelayMS;
     fClient.ConnectRetrySeconds := ConnectRetrySeconds;
     if UserPassword <> '' then begin
       fORM.User := User;
@@ -2174,7 +2205,7 @@ begin
 end;
 
 function ECCAuthorize(aContent: TObject; aSecretDays: integer; const aSecretPass,
- aDPAPI, aDecryptSalt, aAppLockPublic64: RawUTF8; const aSearchFolder: TFileName;
+  aDPAPI, aDecryptSalt, aAppLockPublic64: RawUTF8; const aSearchFolder: TFileName;
   aSecretInfo: PECCCertificateSigned; aLocalFile: PFileName): TECCAuthorize;
 var
   fileroot, fileunlock, filesecret, filepublic: TFileName;
@@ -2189,7 +2220,7 @@ var
   privok, jsonok: boolean;
 begin
   with ExeVersion do
-    fileroot := SysUtils.LowerCase(format('%s@%s', [User, Host]));
+    fileroot := SysUtils.LowerCase(FormatString('%@%', [User, Host]));
   if aSearchFolder = '' then
     fileroot := ExeVersion.ProgramFilePath + fileroot else
     fileroot := IncludeTrailingPathDelimiter(aSearchFolder) + fileroot;
@@ -2284,10 +2315,12 @@ begin
   log := SQLite3Log.Enter('Create(%): connect to %', [fApplicationName, aSettings.ORM.ServerName], self);
   t := aSettings.Timeout;
   fConnectRetrySeconds := aSettings.Client.ConnectRetrySeconds;
-  inherited Create(u.Server, u.Port, CreateModel(aSettings), t, t, t);
+  inherited Create(u.Server, u.Port, CreateModel(aSettings), u.Https, '', '', t, t, t);
   Model.Owner := self; // just allocated by CreateModel()
-  if aSettings.Client.WebSocketsPassword <> '' then
+  if aSettings.Client.WebSocketsPassword <> '' then begin
+    fWebSocketLoopDelay := aSettings.WebSocketsLoopDelay;
     WebSocketsConnect(aSettings.Client.PasswordPlain);
+  end;
   OnAuthentificationFailed := aSettings.OnAuthentificationFailed;
   if aSettings.ORM.Password = '' then
     RegisterServices // plain REST connection without authentication
@@ -2324,19 +2357,23 @@ begin
     exit; // notify once
   log := fLogClass.Enter('ClientDisconnect(%)', [fApplicationName], self);
   fConnected := false;
-  log.Log(sllTrace, 'ClientDisconnect -> AfterDisconnection', self);
+  if log<>nil then
+    log.Log(sllTrace, 'ClientDisconnect -> AfterDisconnection', self);
   try
     AfterDisconnection;
   except
-    log.Log(sllWarning, 'Ignored AfterDisconnection exception', self);
+    if log<>nil then
+      log.Log(sllWarning, 'Ignored AfterDisconnection exception', self);
   end;
   if Assigned(fOnDisconnect) then
     try
-      log.Log(sllTrace, 'ClientDisconnect -> OnDisconnect = %',
-        [ToText(TMethod(fOnDisconnect))], self);
+      if log<>nil then
+        log.Log(sllTrace, 'ClientDisconnect -> OnDisconnect = %',
+          [ToText(TMethod(fOnDisconnect))], self);
       fOnDisconnect(self);
     except
-      log.Log(sllWarning, 'Ignored OnDisconnect exception', self);
+      if log<>nil then
+        log.Log(sllWarning, 'Ignored OnDisconnect exception', self);
     end;
 end;
 
@@ -2363,19 +2400,23 @@ begin
       log2 := nil;
       fServicesRegistered := true;
     end;
-    log.Log(sllTrace, 'ClientSetUser -> AfterConnection', self);
+    if log<>nil then
+      log.Log(sllTrace, 'ClientSetUser -> AfterConnection', self);
     try
       AfterConnection;
     except
-      log.Log(sllWarning, 'Ignored AfterConnection exception', self);
+      if log<>nil then
+        log.Log(sllWarning, 'Ignored AfterConnection exception', self);
     end;
     if Assigned(fOnConnect) then
     try
-      log.Log(sllTrace, 'ClientSetUser -> OnConnect = %',
-        [ToText(TMethod(fOnConnect))], self);
+      if log<>nil then
+        log.Log(sllTrace, 'ClientSetUser -> OnConnect = %',
+          [ToText(TMethod(fOnConnect))], self);
       fOnConnect(self);
     except
-      log.Log(sllWarning, 'Ignored OnConnect exception', self);
+      if log<>nil then
+        log.Log(sllWarning, 'Ignored OnConnect exception', self);
     end;
   end;
 end;

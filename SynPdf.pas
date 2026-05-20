@@ -6,7 +6,7 @@ unit SynPdf;
 {
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynPdf;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -41,6 +41,7 @@ unit SynPdf;
    Harald Simon
    Josh Kelley (joshkel)
    Karel (vandrovnik)
+   Kukhtin Igor
    LoukaO
    Marsh
    MChaos
@@ -66,234 +67,18 @@ unit SynPdf;
 
   ***** END LICENSE BLOCK *****
 
-  Sponsors:               https://synopse.info/fossil/wiki?name=HelpDonate
+  Sponsors: https://synopse.info/fossil/wiki?name=HelpDonate
   Ongoing development and maintenance of the SynPDF library was sponsored
   in part by:
-   http://www.helpndoc.com
+   https://www.helpndoc.com
     Easy to use yet powerful help authoring environment which can generate
     various documentation formats from a single source.
   Thanks for your contribution!
 
-
-
-  Version 1.7
-  - first public release, corresponding to SQLite3 Framework 1.7
-
-  Version 1.7.2
-  - can use the Windows Uniscribe API to render Ordering and Shaping of the text
-    (see USE_UNISCRIBE conditional below)
-
-  Version 1.7.3
-  - issue corrected in TPdfEnum.DrawBitmap() method - occured e.g. when drawing
-    a bitmap using a VCLCanvas
-  - rare issue corrected in TPdfWrite.AddUnicodeHexTextUniScribe() method
-
-  Version 1.7.4
-  - added TPdfBox with Width and Height properties
-  - minor corrections in Uniscribe part of the rendering engine
-
-  Version 1.7.4.RTL
-  - added RightToLeftText property in TPdfCanvas (Uniscribe-only)
-  - handle ETO_RTLREADING option (Uniscribe-only) in VCLCanvas/TMetaFile
-
-  Version 1.8
-  - font substitution if the font is not existing in the system (worse case
-    will use Arial for all fonts)
-  - now handle ETO_GLYPH_INDEX in metafile rendering
-
-  Version 1.8.1 - features added by contribution of REDDWARF / ONDREJ - THANKS!
-  - new feature: allow forced JPEG compression for graphics
-  - new feature: UNDERLINE + STRIKEOUT support (also in RICH TEXT and rotated text !)
-  - new USE_SYNGDIPLUS conditional if you want to use the default jpeg unit
-    instead of our SynGdiPlus (but you loose TIF, PNG, and GIF support)
-  - enhanced: PenWidth changed to Single -> better precision (e.g. for underlined text)
-  - fix issue: Rotated text was misplaced for some angles
-  - some small fixes about FillRect() + scaling, and move/line stroke
-  - REDDWARF / ONDREJ made a very good work - I had very few thinks to rewrite
-
-  Version 1.8.2
-  - added optional XOff,YOff parameters to RenderMetaFile()
-
-  Version 1.8.3
-  - now handle EMR_STRETCHDIBITS (used in Html2Pdf)
-  - fix strike out line position (was too low)
-
-  Version 1.8.4
-  - fixed TextWidth() and TextMeasure()
-
-  Version 1.8.5
-  - fixed font enumeration problem (triggered with asiatic windows)
-
-  Version 1.8.6
-  - system font enumeration is now stored using UTF-8, and any non ASCII font
-    name will used in the PDF content the official Postscript name extracted
-    from its TrueType font content
-  - optional charset parameter is now available in TPdfCanvas.SetFont: this
-    was needed in case of TMetaFile rendering to fix some encoding problems
-
-  Version 1.8.7
-  - bitmap embedding fix - see https://synopse.info/forum/viewtopic.php?pid=237
-  - now initializes the Gdi+ library if necessary
-
-  Version 1.8.8
-  - fix small issue with font orientation in metafile enumeration
-
-  Version 1.10
-  - new TPdfImage.CreateJpegDirect method and PixelWidth/PixelHeight properties
-
-  Version 1.11
-  - unit won't need Printers unit any more (so can get rid of Forms and others)
-  - source code modified to be 7 bit Ansi (so will work with all encodings)
-
-  Version 1.12
-  - can now generate PDF/A-1 files if the new PDFA1 property is set to true
-  - new CreateLink and CreateBookMark methods for TPdfDocument, to easily
-    handle bookmarks and links
-  - new CreateOutline method for TPdfDocument, for direct outline adding
-  - new TPdfPage.PageLandscape and TPdfDocument.DefaultPageLandscape properties
-  - can use EMR_GDICOMMENT to embedd some SynPDF related data (like bookmarks,
-    links, and document outline) in the source TMetaFile - used by TSQLite3Pages
-  - new TPdfTextString class, used to handle Unicode parameters (e.g. in
-    TPdfInfo, which properties are now handling unicode encoding as expected)
-  - new CreateOrGetImage method to easily add a bitmap to the page, with
-    internal caching: if the same bitmap content is sent more than once, only
-    one TPDFImage will be used (used for emf enumeration, e.g. SQLite3Pages)
-  - now handle justified text from metafile (i.e. call to SetTextJustification
-    Windows API will change the PDF word space as expected)
-  - Uniscribe API now made public (and documented as such), for TRenderPages
-  - fixed memory leak in TPdfOutlineRoot.Create
-  - fixed issue in TPdfDocumentGDI.VCLCanvasSize
-  - fixed issue with fixed-width font unicode characters display
-  - FontSub.dll library is loaded only once for the whole application
-
-  Version 1.13
-  - code modifications to compile with Delphi 5 compiler
-  - added horizontal scaling for GDI enumeration in case of text kerning (could
-    occur for small fonts)
-  - fixed "Save when closing with Acrobat Reader X" - thanks to Ondrej
-  - fixed clipping problems and vertical font positioning issue in GDI
-    enumeration - thanks to Ondrej for those corrections!
-
-  Version 1.14
-  - new SetCMYKFillColor and SetCMYKStrokeColor methods for TPdfCanvas
-  - now handles EMR_POLYBEZIER* commands in conversion from meta file content
-  - fixed EZeroDivided error when enumerating SetWindowExtEx(szlExtent(0,0))
-  - some enhancements for better PDF/A-1 conformance to the standard: now
-    includes the ICC profile for RGB pictures; corrected /Link flag and XML
-    metadata; new header with 8 bit characters; correct outlines and other
-    minor issues: now pass www.pdf-tools.com/pdf/pdfa-online-pruefen.aspx test
-
-  Version 1.15
-  - unit now tested with Delphi XE2 (32 Bit)
-
-  Version 1.16
-  - includes new TSynAnsiConvert classes for handling Ansi charsets
-  - do not stop TMetaFile enumeration in case of invalid EMF content (e.g.
-    if the EMR_SELECTOBJECT refers to an out-of-range object): this is
-    the default behavior of GDI and GDI+ renders (and our SynGdiPlus), so
-    we'll stay to it - may fix issue with some badly formatted objects - also
-    made the TMetaFile rendering stronger to badly formated EMF input
-  - fixed issue in TPdfDocument.CreateOrGetImage about guessing if a bitmap is
-    to be reused as a pdf object
-  - added TPdfDocument.ForceNoBitmapReuse property
-  - added a "Decimals: cardinal=6" parameter to TPdfCanvas.ConcatToCTM
-  - TPdfCanvas.SetDash parameter is now an array of integer
-  - set PDF_MAX_FONTSIZE limit to 2000 - should be big enough in practice
-  - fixed an issue when handling bitmap palette
-  - fixed an issue when the first time a font was used is as Unicode
-  - fixed a potential GPF issue in function HashOf() in PUREPASCAL mode (used
-    to reuse any existing bitmap content within the PDF document)
-
-  Version 1.17
-  - new TPdfDocument.UseFontFallBack property (enabled by default) and
-    associated FontFallBackName property (set to 'Arial Unicode MS' by default),
-    used to define if the PDF document will handle "font fallback" for characters
-    not existing in the current font: it will avoid rendering block/square
-    symbols instead of the correct characters (e.g. for Chinese text)
-  - now handle device or bitmap fonts as the most close true-type font available
-  - speed-up of internal true-type fonts list (using binary search)
-  - SynPdf unit can now link to standard ZLib.pas unit if you want to use SynPdf
-    stand-alone and do not need SynZip.pas + deflate.obj + trees.obj
-    (but SQLite3Commons.pas main unit of mORMot will need SynZip, so it is
-    enabled by default for use within the framework)
-
-  Version 1.18
-  - BREAKING CHANGE of TPdfCanvas.RenderMetaFile() by spliting Scale parameter
-    into specific ScaleX, ScaleY values
-  - major speed up of TPdfCanvas.RenderMetaFile() by caching printer resolution
-  - implemented 40 bit and 128 bit security - see TPdfEncryption.New()
-  - introducing TPdfDocument.SaveToStreamDirectBegin/PageFlush/End methods,
-    able to render all page content directly to the destination stream/file,
-    therefore reducing the memory use to a minimal value for huge content - used
-    e.g. in TPdfDocumentGDI.SaveToStream() and TGDIPages.ExportPDFStream()
-  - TPdfDocumentGDI will now compress (via our SynLZ algorithm) all its page
-    content (TMetaFile) for efficiency
-  - TPdfDocumentGDI.SaveToStreamDirectPageFlush overridden method could be used
-    to reduce the used memory even more, by-passing page content compression
-  - therefore, TPdfDocumentGDI will use much less resource and memory with no
-    swaping to disk (tested with 200,000 simple text pages)
-  - reduced generated file size, with optional PDFGeneratePDF15File property
-  - embedd ttc fonts [d2d6953fb3] - thanks David Mead (MDW) for the patch
-  - fixed incorrect Postscript font name retrieval e.g. for Asiatic fonts
-  - fixed potential GPF issue in TPdfWrite.AddUnicodeHex and TPdfWrite.AddHex
-  - fixed compilation warnings regarding Delphi XE3 regressions
-  - fixed text color process in TPdfEnum
-  - handle inverted y-axis for TPdfEnum.TextOut (used e.g. for MM_LOMETRIC
-    compatible rendering as reported by [52c37cc5a14] and fixed by Florian)
-  - fixed mixed portrait/landscape page rendering within a same document
-  - fixed invalid ScriptShape() API error when UniScribe is true
-  - use TSynAnsiConvert class for internal multi-byte conversion (better speed)
-  - Several fixes and enhancements by Sinisa (sinisav):
-    - fixes are mostly for embeded metafiles
-    - added World Transformation matrix
-    - fixed scaling objects (bitmaps, pen, text)
-    - fixed text positioning
-    - added region/clipping support
-    - added graphics/mapping mode
-    - add new enum items: EMR_POLYPOLYGON, EMR_POLYPOLYLINE, EMR_POLYPOLYGON16,
-      EMR_POLYPOLYLINE16, EMR_GRADIENTFILL, EMR_MODIFYWORLDTRANSFORM, EMR_EXTCREATEPEN,
-      EMR_SETMITERLIMIT, EMR_SETMETARGN, EMR_EXTSELECTCLIPRGN, EMR_INTERSECTCLIPRECT,
-      EMR_SETMAPMODE, EMR_BEGINPATH, EMR_ENDPATH, EMR_ABORTPATH, EMR_CLOSEFIGURE,
-      EMR_FILLPATH, EMR_STROKEPATH, EMR_STROKEANDFILLPATH, EMR_SETPOLYFILLMODE,
-      EMR_SETSTRETCHBLTMODE, EMR_SETARCDIRECTION, EMR_POLYLINETO, EMR_POLYLINETO16,
-    - fixed EMR_POLYBEZIER* and moveto action (new way to mark when processed - when
-      coordinates are set to use Point(0,0) )
-    - fixed null pen and not stroke
-    - few more issues still remains (gradient fill, some text size issues...)
-  - added EMR_POLYDRAW, EMR_POLYDRAW16 process (from CoMPi proposal - thanks!)
-  - added EMR_FILLRGN process (from RyanC proposal - thanks for the feedback!)
-  - some fixes and added EMR_TRANSPARENTBLT + mirrored bitmaps (patch from Chaa)
-  - added EMR_SETBKMODE/EMR_SETBKCOLOR process - see ticket [487767008a]
-  - fix for EMR_SET*COLOR clNone color rendering (patch from vmkmg)
-  - fixed SYMBOL_CHARSET kind of fonts (e.g. bullets from Symbol font)
-  - fixed EMR_TEXTOUT rotated text positioning (patch pkrott)
-  - added PdfCoord() function
-  - increased allowed number of EMR_SAVEDC/EMR_RESTOREDC pairs during rendering
-  - handle SetTextAlign(TA_UPDATECP) command for feature request [a8d7393af1]
-  - fix vertical text alignment and line drawing (patch from ddemars - thanks!)
-  - introducing TPdfDocumentGDI.UseMetaFileTextPositioning instead of former
-    UseSetTextJustification property: now you can force exact font kerning
-    positioning for each character, via tpExactTextCharacterPositining; this
-    parameter has been also added to TPdfCanvas.RenderMetaFile() - it will
-    produce bigger pdf file size, but will fulfill feature request [7d6a3a3f0f]
-  - fixed text clipping - thanks Pierre for the patch!
-  - added TPdfDocumentGDI.UseMetaFileTextClipping property and corresponding
-    optional parameter to TPdfCanvas.RenderMetaFile()
-  - added vpEnforcePrintScaling to TPdfViewerPreferences set - forcing PDF 1.6 -
-    thanks MChaos for the proposal!
-  - added Harald Simon's patch for EMR_BITBLT/EMR_STRETCHBLT
-  - added PDF Group Content methods for creating layered content - thanks
-    Harald for the patch! see SynPdfLayers.dpr in sample 05
-  - added TPdfFormWithCanvas class - thanks Harald! see SynPdfFormCanvas.dpr
-  - EMR_INTERSECTCLIPRECT fix supplied by Marsh - but patch disabled by default
-  - huge UniScribe fixes supplied by Mehrdad Momeni (nosa) - THANKS A LOT!
-  - enhanced clipping process by Achim Kalwa
-  - added Support for ARC ARCTO PIE and CHORD - thanks ProHolz for the patch
-
 }
 
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64
 
 {$ifndef MSWINDOWS}
   { disable features requiring OS specific APIs
@@ -304,6 +89,14 @@ unit SynPdf;
   {$define NO_USE_BITMAP}
 {$endif}
 
+{.$define USE_PDFALEVEL}
+{ - if defined, the TPdfDocument*.Create() constructor will have an PDF/A level 
+  value instead of the boolean value PDFA1}
+{$ifdef NO_USE_PDFALEVEL}
+  { this special conditional can be set globaly for an application which doesn't
+    need the PDF/A level features }
+  {$undef USE_PDFALEVEL}
+{$endif}
 
 {$define USE_PDFSECURITY}
 { - if defined, the TPdfDocument*.Create() constructor will have an additional
@@ -319,8 +112,8 @@ unit SynPdf;
 { - if defined, the PDF engine will use the Windows Uniscribe API to
   render Ordering and Shaping of the text (useful for Hebrew, Arabic and
   some Asiatic languages)
-  - this feature need the TPdfDocument.UseUniscribe property to be forced to true
-  according to the language of the text you want to render
+  - this feature need the TPdfDocument.UseUniscribe property to be forced to
+  true according to the language of the text you want to render
   - can be undefined to safe some KB if you're sure you won't need it }
 {$ifdef NO_USE_UNISCRIBE}
   { this special conditional can be set globaly for an application which doesn't
@@ -464,7 +257,7 @@ type
     /// Offset of the mapping table
     offset: Cardinal;
   end;
-  /// The 'hhea' table contains information needed to layout fonts whose
+  /// 'hhea' table contains information needed to layout fonts whose
   // characters are written horizontally, that is, either left to right or
   // right to left
   TCmapHHEA = packed record
@@ -483,7 +276,7 @@ type
     metricDataFormat: SmallInt;
     numOfLongHorMetrics: word;
   end;
-  /// The 'head' table contains global information about the font
+  /// 'head' table contains global information about the font
   TCmapHEAD = packed record
     version: longint;
     fontRevision: longint;
@@ -526,6 +319,9 @@ type
 
   /// the internal pdf file format
   TPdfFileFormat = (pdf13, pdf14, pdf15, pdf16);
+
+  /// the PDF/A level
+  TPdfALevel = (pdfaNone, pdfa1A, pdfa1B, pdfa2A, pdfa2B, pdfa3A, pdfa3B);
 
   /// PDF exception, raised when an invalid value is given to a constructor
   EPdfInvalidValue = class(Exception);
@@ -593,6 +389,9 @@ type
   /// the PDF color, as expressed in RGB terms
   // - maps COLORREF / TColorRef as used e.g. under windows
   TPdfColorRGB = cardinal;
+
+  /// the recognized families of the Standard 14 Fonts
+  TPdfFontStandard = (pfsTimes, pfsHelvetica, pfsCourier);
 
   /// numerical ID for every XObject
   TXObjectID = integer;
@@ -760,7 +559,7 @@ type
     // - will compute the internal keys
     procedure AttachDocument(aDoc: TPdfDocument); override;
   end;
-{$endif}
+{$endif USE_PDFSECURITY}
 
   /// buffered writer class, specialized for PDF encoding
   TPdfWrite = class
@@ -796,7 +595,7 @@ type
     /// add an integer numerical value to the buffer
     function Add(Value: Integer): TPdfWrite; overload;
     /// add an integer numerical value to the buffer
-    // - add a trailing space
+    // - and append a trailing space
     function AddWithSpace(Value: Integer): TPdfWrite; overload;
     /// add an integer numerical value to the buffer
     // - with a specified fixed number of digits (left filled by '0')
@@ -1029,9 +828,6 @@ type
   protected
     function SpaceNotNeeded: boolean; override;
     procedure InternalWriteTo(W: TPdfWrite); override;
-  public
-    /// simple creator, replacing every % in Fmt by the corresponding Args[]
-    constructor CreateFmt(Fmt: PAnsiChar; const Args: array of Integer);
   end;
 
   /// a PDF object, storing a textual value with no encryption
@@ -1049,6 +845,10 @@ type
   TPdfName = class(TPdfText)
   protected
     procedure InternalWriteTo(W: TPdfWrite); override;
+  public
+    /// append the 'SUBSET+' prefix to the Value
+    // - used e.g. to notify that a font is included as a subset
+    function AppendPrefix: RawUtf8;
   end;
 
   /// used to store an array of PDF objects
@@ -1095,7 +895,7 @@ type
     /// the associated PDF Object Manager
     property ObjectMgr: TPdfObjectMgr read FObjectMgr;
     /// direct access to the internal TList instance
-    // - not to be used normaly
+    // - not to be used normally
     property List: TList read FArray;
   end;
 
@@ -1194,7 +994,7 @@ type
     /// retrieve the type of the pdfdictionary object, i.e. the 'Type' property name
     property TypeOf: PDFString read getTypeOf;
     /// direct access to the internal TList instance
-    // - not to be used normaly
+    // - not to be used normally
     property List: TList read FArray;
   end;
 
@@ -1392,7 +1192,7 @@ type
     /// internal temporary variable - used by CreateOutline
     fLastOutline: TPdfOutlineEntry;
     fFileFormat: TPdfFileFormat;
-    fPDFA1: boolean;
+    fPDFA: TPdfALevel;
     fSaveToStreamWriter: TPdfWrite;
     {$ifdef USE_PDFSECURITY}
     fEncryption: TPdfEncryption;
@@ -1400,7 +1200,7 @@ type
     fEncryptionObject: TPdfDictionary;
     fCurrentObjectNumber: integer;
     fCurrentGenerationNumber: integer;
-    {$endif}
+    {$endif USE_PDFSECURITY}
     function GetGeneratePDF15File: boolean;
     procedure SetGeneratePDF15File(const Value: boolean);
     function GetInfo: TPdfInfo;     {$ifdef HASINLINE}inline;{$endif}
@@ -1411,7 +1211,11 @@ type
     procedure SetDefaultPageHeight(const Value: cardinal);
     procedure SetDefaultPageWidth(const Value: cardinal);
     procedure SetUseOptionalContent(const Value: boolean);
+    procedure SetPDFA(const Value: TPdfALevel);
+    {$ifndef USE_PDFALEVEL}
+    function  GetPDFA1: boolean;
     procedure SetPDFA1(const Value: boolean);
+    {$endif}
     function GetDefaultPageLandscape: boolean;
     procedure SetDefaultPageLandscape(const Value: boolean);
     procedure SetFontFallBackName(const Value: string);
@@ -1425,8 +1229,6 @@ type
     // - use the Naming Table ('name') of the TTF content if not 7 bit ascii
     function TTFFontPostcriptName(aFontIndex: integer; AStyle: TPdfFontStyles;
       AFont: TPdfFontTrueType): PDFString;
-    /// if ANSI_CHARSET is used, create a standard embedded font
-    function CreateEmbeddedFont(const FontName: RawUTF8): TPdfFont;
     /// register the font in the font list
     procedure RegisterFont(aFont: TPdfFont);
     /// get the PDF font, from its internal PDF name (e.g. 'Helvetica-Bold')
@@ -1458,10 +1260,11 @@ type
     // - note that only Win-Ansi encoding allows use of embedded standard fonts
     // - you can specify a Code Page to be used for the PDFString encoding;
     // by default (ACodePage left to 0), the current system code page is used
-    // - you can create a PDF/A-1 compliant document by setting APDFA1 to true
+    // - you can create a PDF/A compliant document by setting APDFA to PDF/A Level 
+    // or APDFA1 to true
     // - you can set an encryption instance, by using TPdfEncryption.New()
     constructor Create(AUseOutlines: Boolean=false; ACodePage: integer=0;
-      APDFA1: boolean=false
+      {$ifdef USE_PDFALEVEL]}APDFA: TPdfALevel=pdfaNone{$else}APDFA1: boolean=false{$endif}
       {$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption=nil{$endif}); reintroduce;
     /// release the PDF document instance
     destructor Destroy; override;
@@ -1471,6 +1274,11 @@ type
     procedure NewDoc;
     /// add a Page to the current PDF document
     function AddPage: TPdfPage; virtual;
+    /// register a font to the internal TTF font list
+    // - some fonts may not be enumerated in the system, e.g. after calling
+    // AddFontMemResourceEx, so could be registered by this method
+    // - to be called just after Create(), before anything is written
+    function AddTrueTypeFont(const TTFName: RawUtf8): boolean;
     /// create a Pages object
     // - Pages objects can be nested, to save memory used by the Viewer
     // - only necessary if you have more than 8000 pages (this method is called
@@ -1652,7 +1460,8 @@ type
     property UseFontFallBack: boolean read fUseFontFallBack write fUseFontFallBack;
     /// set the font name to be used for missing characters
     // - used only if UseFontFallBack is TRUE
-    // - default value is 'Arial Unicode MS', if existing
+    // - default value is 'Lucida Sans Unicode' or 'Arial Unicode MS', if
+    // available - but you may also consider https://fonts.google.com/noto/fonts
     property FontFallBackName: string read GetFontFallBackName write SetFontFallBackName;
 
     /// this property can force saving all canvas bitmaps images as JPEG
@@ -1682,12 +1491,20 @@ type
     // the native resolution of the PDF, i.e. more than 7200 DPI (since we
     // write coordinates with 2 decimals per point - which is 1/72 inch)
     property ScreenLogPixels: Integer read FScreenLogPixels write FScreenLogPixels;
+    /// is pdfaXXX if the file was created in order to be PDF/A compliant
+    // - set APDFA parameter to a level for Create constructor in order to use it
+    // - warning: setting a value to this propery after creation will call the
+    // NewDoc method, therefore will erase all previous content and pages
+    // (including Info properties)
+    property PDFA: TPdfALevel read fPDFA write SetPDFA;
+    {$ifndef USE_PDFALEVEL}
     /// is TRUE if the file was created in order to be PDF/A-1 compliant
     // - set APDFA1 parameter to true for Create constructor in order to use it
     // - warning: setting a value to this propery after creation will call the
     // NewDoc method, therefore will erase all previous content and pages
     // (including Info properties)
-    property PDFA1: boolean read fPDFA1 write SetPDFA1;
+    property PDFA1: boolean read GetPDFA1 write SetPDFA1;
+    {$endif}
     /// set to TRUE to force PDF 1.5 format, which may produce smaller files
     property GeneratePDF15File: boolean read GetGeneratePDF15File write SetGeneratePDF15File;
   end;
@@ -1728,24 +1545,24 @@ type
     // the index in Text, not the glyphs index
     function MeasureText(const Text: PDFString; Width: Single): integer;
   public
-    /// retrieve or set the word Space attribute
+    /// retrieve or set the word Space attribute, in PDF coordinates of 1/72 inch
     property WordSpace: Single read FWordSpace write SetWordSpace;
-    /// retrieve or set the Char Space attribute
+    /// retrieve or set the Char Space attribute, in PDF coordinates of 1/72 inch
     property CharSpace: Single read FCharSpace write SetCharSpace;
-    /// retrieve or set the Horizontal Scaling attribute
+    /// retrieve or set the Horizontal Scaling attribute, in PDF coordinates of 1/72 inch
     property HorizontalScaling: Single read FHorizontalScaling write SetHorizontalScaling;
-    /// retrieve or set the text Leading attribute
+    /// retrieve or set the text Leading attribute, in PDF coordinates of 1/72 inch
     property Leading: Single read FLeading write SetLeading;
-    /// retrieve or set the font Size attribute
+    /// retrieve or set the font Size attribute, in system TFont.Size units
     property FontSize: Single read FFontSize write SetFontSize;
     /// retrieve the current used font
     // - for TPdfFontTrueType, this points not always to the WinAnsi version of
     // the Font, but can also point to the Unicode Version, if the last
     // drawn character by ShowText() was unicode - see TPdfWrite.AddUnicodeHexText
     property Font: TPdfFont read FFont write FFont;
-    /// retrieve or set the current page width
+    /// retrieve or set the current page width, in PDF coordinates of 1/72 inch
     property PageWidth: integer read GetPageWidth write SetPageWidth;
-    /// retrieve or set the current page height
+    /// retrieve or set the current page height, in PDF coordinates of 1/72 inch
     property PageHeight: integer read GetPageHeight write SetPageHeight;
     /// retrieve or set the paper orientation
     property PageLandscape: Boolean read GetPageLandscape write SetPageLandscape;
@@ -1776,7 +1593,7 @@ type
   /// is used to define the TMetaFile kind of arc to be drawn
   TPdfCanvasArcType =(
     acArc, acArcTo, acArcAngle, acPie, acChoord);
-  {$endif}
+  {$endif USE_ARC}
 
   /// access to the PDF Canvas, used to draw on the page
   TPdfCanvas = class(TObject)
@@ -1798,7 +1615,8 @@ type
     // = XOff,YOff parameters specified in RenderMetaFile()
     FOffsetXDef, FOffsetYDef: Single;
     // WorldTransform factor and offs
-    FWorldFactorX, FWorldFactorY, FWorldOffsetX, FWorldOffsetY: single;
+    FWorldFactorX, FWorldFactorY, FWorldOffsetX, FWorldOffsetY, FAngle,
+    FWorldCos, FWorldSin: single;
     FDevScaleX, FDevScaleY: single;
     FWinSize, FViewSize: TSize;
     FWinOrg, FViewOrg: TPoint;
@@ -1839,7 +1657,7 @@ type
    {$ifdef USE_ARC}
    procedure ARCI(centerx, centery, W, H, Sx, Sy, Ex, Ey: integer;
      clockwise: boolean; arctype: TPdfCanvasArcType; var position: TPoint);
-   {$endif}
+   {$endif USE_ARC}
     // wrapper call I2X() and I2Y() for conversion (points to origin+size)
     function BoxI(Box: TRect; Normalize: boolean): TPdfBox; {$ifdef HASINLINE}inline;{$endif}
     // wrapper call I2X() and I2Y() for conversion
@@ -2237,7 +2055,7 @@ type
   // - use the GDIComment*() functions to append the corresponding
   // EMR_GDICOMMENT message to a metafile content
   TPdfGDIComment =
-    (pgcOutline, pgcBookmark, pgcLink, pgcLinkNoBorder);
+    (pgcOutline, pgcBookmark, pgcLink, pgcLinkNoBorder, pgcJpegDirect);
 
   /// a dictionary wrapper class for the PDF document information fields
   // - all values use the generic VCL string type, and will be encoded
@@ -2476,7 +2294,7 @@ type
     procedure CreateAssociatedUnicodeFont;
     // update font description from used chars
     procedure PrepareForSaving;
-    // low level adding of a glyph (returns the real glyph index found, 0 if none)
+    // low level adding of a glyph (returns the real glyph index found, aGlyph if none)
     function GetAndMarkGlyphAsUsed(aGlyph: word): word;
   public
     /// create the TrueType font object instance
@@ -2637,7 +2455,8 @@ type
     // it is in fact a TMetaFileCanvas instance from fVCLCurrentMetaFile
     fVCLCurrentCanvas: TCanvas;
     fVCLCurrentMetaFile: TMetaFile;
-    // allow to create the meta file and its canvas only if necessary
+    // allow to create the meta file and its canvas only if necessary, and
+    // compress the page content using SynLZ to reduce memory usage
     procedure CreateVCLCanvas;
     procedure SetVCLCurrentMetaFile;
     procedure FlushVCLCanvas;
@@ -2661,7 +2480,7 @@ type
     /// create the PDF document instance, with a VCL Canvas property
     // - see TPdfDocument.Create connstructor for the arguments expectations
     constructor Create(AUseOutlines: Boolean=false; ACodePage: integer=0;
-      APDFA1: boolean=false
+      {$ifdef USE_PDFALEVEL]}APDFA: TPdfALevel=pdfaNone{$else}APDFA1: boolean=false{$endif}
       {$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption=nil{$endif});
     /// add a Page to the current PDF document
     function AddPage: TPdfPage; override;
@@ -2876,6 +2695,8 @@ procedure GDICommentOutline(MetaHandle: HDC; const aTitle: RawUTF8; aLevel: Inte
 procedure GDICommentLink(MetaHandle: HDC; const aBookmarkName: RawUTF8; const aRect: TRect;
   NoBorder: boolean);
 
+/// append a EMR_GDICOMMENT message for adding jpeg direct
+procedure GDICommentJpegDirect(MetaHandle: HDC; const aFileName: RawUTF8; const aRect: TRect);
 
 {$ifdef USE_PDFSECURITY}
 const
@@ -3159,6 +2980,13 @@ function ScriptApplyDigitSubstitution(
 
 implementation
 
+const
+  // those constants are not defined in earlier Delphi revisions
+  cPI: single = 3.141592654;
+  cPIdiv180: single = 0.017453292;
+  c180divPI: single = 57.29577951;
+  c2PI: double = 6.283185307;
+  cPIdiv2: double = 1.570796326;
 
 function RGBA(r, g, b, a: cardinal): COLORREF; {$ifdef HASINLINE}inline;{$endif}
 begin
@@ -3335,6 +3163,20 @@ begin // high(TPdfGDIComment)<$47 so it will never begin with GDICOMMENT_IDENTIF
   Windows.GdiComment(MetaHandle,L+(1+sizeof(TRect)),D);
 end;
 
+procedure GDICommentJpegDirect(MetaHandle: HDC; const aFileName: RawUTF8; const aRect: TRect);
+var Data: RawByteString;
+    D: PAnsiChar;
+    L: integer;
+begin // high(TPdfGDIComment)<$47 so it will never begin with GDICOMMENT_IDENTIFIER
+  L := length(aFileName);
+  SetLength(Data,L+(1+sizeof(TRect)));
+  D := pointer(Data);
+  D^ := AnsiChar(pgcJpegDirect);
+  PRect(D+1)^ := aRect;
+  MoveFast(pointer(aFileName)^,D[1+sizeof(TRect)],L);
+  Windows.GdiComment(MetaHandle,L+(1+sizeof(TRect)),D);
+end;
+
 {$ifndef DELPHI5OROLDER}
 // used by TPdfFontTrueType.PrepareForSaving()
 function GetTTCIndex(const FontName: RawUTF8; var ttcIndex: Word;
@@ -3343,7 +3185,7 @@ function GetTTCIndex(const FontName: RawUTF8; var ttcIndex: Word;
 // For some locales, the lookup may fail
 // Result must not be greater than FontCount-1
 const
-  // Font names for Simp/Trad Chinese, Japanese, Korean locales.
+  // lower-cased Font names for Simpl/Trad Chinese, Japanese, Korean locales
   BATANG_KO = #48148#53461;
   BATANGCHE_KO = BATANG_KO + #52404;
   GUNGSUH_KO = #44417#49436;
@@ -3358,10 +3200,10 @@ const
   MINGLIU_XB_CH = MINGLIU_CH + '-extb';
   PMINGLIU_XB_CH = PMINGLIU_CH + '-extb';
   MINGLIU_XBHK_CH = MINGLIU_CH + '-extb_hkscs';
-  MSGOTHIC_JA = #65325#65331#32#12468#12471#12483#12463;
-  MSPGOTHIC_JA = #65325#65331#32#65328#12468#12471#12483#12463;
-  MSMINCHO_JA = #65325#65331#32#26126#26397;
-  MSPMINCHO_JA = #65325#65331#32#65328#26126#26397;
+  MSGOTHIC_JA = #65357#65363#32#12468#12471#12483#12463;
+  MSPGOTHIC_JA = #65357#65363#32#65328#12468#12471#12483#12463;
+  MSMINCHO_JA = #65357#65363#32#26126#26397;
+  MSPMINCHO_JA = #65357#65363#32#65328#26126#26397;
   SIMSUN_CHS = #23435#20307;
   NSIMSUN_CHS = #26032#23435#20307;
 var
@@ -3408,20 +3250,16 @@ begin
   if (lcfn='mingliu_hkscs-extb') or (lcfn=MINGLIU_XBHK_CH) then
     ttcIndex := 2 else
   // msgothic.ttc (Japanese)
-  if (lcfn='ms gothic') or
-     (lcfn={$ifdef UNICODE}SysUtils.LowerCase{$else}WideLowerCase{$endif}(MSGOTHIC_JA)) then
-    ttcIndex := 0 // MSGOTHIC_JA contains full-width uppercase chars
-  else if (lcfn='ms pgothic') or
-    (lcfn={$ifdef UNICODE}SysUtils.LowerCase{$else}WideLowerCase{$endif}(MSPGOTHIC_JA)) then
+  if (lcfn='ms gothic') or (lcfn=MSGOTHIC_JA) then
+    ttcIndex := 0 
+  else if (lcfn='ms pgothic') or (lcfn=MSPGOTHIC_JA) then
       ttcIndex := 1 else
   if lcfn='ms ui gothic' then
     ttcIndex := 2 else
   // msmincho.ttc (Japanese)
-  if (lcfn='ms mincho') or
-     (lcfn={$ifdef UNICODE}SysUtils.LowerCase{$else}WideLowerCase{$endif}(MSMINCHO_JA)) then
+  if (lcfn='ms mincho') or (lcfn=MSMINCHO_JA) then
     ttcIndex := 0 else
-  if (lcfn='ms pmincho') or
-     (lcfn={$ifdef UNICODE}SysUtils.LowerCase{$else}WideLowerCase{$endif}(MSPMINCHO_JA)) then
+  if (lcfn='ms pmincho') or (lcfn=MSPMINCHO_JA) then
     ttcIndex := 1 else
   // simsun.ttc (Simplified Chinese)
   if (lcfn='simsun') or (lcfn=SIMSUN_CHS) then
@@ -3451,7 +3289,6 @@ type
   TCoeff = array[0..3] of double;
   TCoeffArray = array[0..1, 0..3] of TCoeff;
 const
-  twoPi = 2 * PI;
   // coefficients for error estimation
   // while using cubic Bezier curves for approximation
   // 0 < b/a < 1/4
@@ -3509,11 +3346,11 @@ begin
   feta1 := ArcTan2(sin(lambda1) / fbRad, cos(lambda1) / faRad);
   feta2 := ArcTan2(sin(lambda2) / fbRad, cos(lambda2) / faRad);
   // make sure we have eta1 <= eta2 <= eta1 + 2 PI
-  feta2 := feta2 - (twoPi * floor((feta2 - feta1) / twoPi));
+  feta2 := feta2 - (c2PI * floor((feta2 - feta1) / c2PI));
   // the preceding correction fails if we have exactly et2 - eta1 = 2 PI
   // it reduces the interval to zero length
   if SameValue(feta1, feta2) then
-    feta2 := feta2 + twoPi;
+    feta2 := feta2 + c2PI;
   // start point
   fx1 := fcx + (faRad * cos(feta1));
   fy1 := fcy + (fbRad * sin(feta1));
@@ -3577,7 +3414,7 @@ begin
   n := 1;
   while (not found) and (n < 1024) do begin
     dEta := (feta2 - feta1) / n;
-    if dEta <= 0.5 * PI then begin
+    if dEta <= cPIdiv2 then begin
       etaB := feta1;
       found := true;
       for i := 0 to n - 1 do begin
@@ -3736,7 +3573,7 @@ begin
       fCurrentObjectNumber := FObjectNumber;
       fCurrentGenerationNumber := FGenerationNumber;
     end;
-{$endif}
+{$endif USE_PDFSECURITY}
 end;
 
 procedure TPdfObject.SetObjectNumber(Value: integer);
@@ -3791,9 +3628,7 @@ end;
 
 procedure TPdfBoolean.InternalWriteTo(W: TPdfWrite);
 begin
-  if Value then
-    W.Add('true') else
-    W.Add('false');
+  W.Add(BOOL_UTF8[Value]);
 end;
 
 constructor TPdfBoolean.Create(AValue: Boolean);
@@ -3899,36 +3734,6 @@ end;
 
 { TPdfRawText }
 
-constructor TPdfRawText.CreateFmt(Fmt: PAnsiChar; const Args: array of Integer);
-var s, tmp: PDFString;
-    PDeb: PAnsiChar;
-    A: integer;
-begin
-  if high(Args)<0 then
-    s := Fmt else begin
-    A := 0;
-    while Fmt^<>#0 do begin
-      if Fmt^<>'%' then begin
-        PDeb := Fmt;
-        while (Fmt^<>'%') and (Fmt^<>#0) do inc(Fmt);
-        SetString(tmp,PDeb,Fmt-PDeb);
-        s := s+tmp;
-      end;
-      if Fmt^=#0 then break;
-      inc(Fmt);
-      if A<=high(Args) then begin
-        Str(Args[A],tmp);
-        s := s+tmp;
-        inc(A);
-      end else begin
-        s := s+Fmt;
-        break;
-      end;
-    end;
-  end;
-  inherited Create(s);
-end;
-
 procedure TPdfRawText.InternalWriteTo(W: TPdfWrite);
 begin
   W.Add(FValue);
@@ -3960,6 +3765,25 @@ end;
 procedure TPdfName.InternalWriteTo(W: TPdfWrite);
 begin
   W.Add('/').AddEscapeName(pointer(FValue));
+end;
+
+function TPdfName.AppendPrefix: RawUtf8;
+var prefix: RawUtf8;
+    c: cardinal;
+    i: PtrInt;
+begin
+  if self=nil then
+    exit;
+  SetLength(prefix, 7);
+  c := Random32; // we will consume only 24-bit of randomness
+  for i := 1 to 6 do
+  begin
+    prefix[i] := AnsiChar((c and 15) + 65);
+    c := c shr 4;
+  end;
+  prefix[7] := '+';
+  FValue := prefix+FValue; // we ensured a single subset per font
+  result := FValue;
 end;
 
 
@@ -4370,7 +4194,7 @@ begin
   {$ifdef USE_PDFSECURITY}
     if (TmpSize>0) and (W.fDoc.fEncryption<>nil) and not FDoNotEncrypt then
       W.fDoc.fEncryption.EncodeBuffer(Buf^,Buf^,TmpSize);
-  {$endif}
+  {$endif USE_PDFSECURITY}
     W.Add(#10'stream'#10).Add(Buf,TmpSize).
       Add(#10'endstream');
     FWriter.fDestStream.Size := 0; // release internal stream memory
@@ -4455,7 +4279,7 @@ function _PdfDateToDateTime(const AText: TPdfDate): TDateTime;
 var Y,M,D, H,MI,SS: cardinal;
 begin
   if Length(AText)<16 then
-    EConvertError.CreateRes(@SDateEncodeError);
+    raise EConvertError.CreateRes(@SDateEncodeError);
   Y := ord(AText[3])*1000+ord(AText[4])*100+ord(AText[5])*10+ord(AText[6])
     -(48+480+4800+48000);
   M := ord(AText[7])*10+ord(AText[8])-(48+480);
@@ -4467,7 +4291,7 @@ begin
   if (H<24) and (MI<60) and (SS<60) then // inlined EncodeTime()
     result := result + (H * (MinsPerHour * SecsPerMin * MSecsPerSec) +
       MI * (SecsPerMin * MSecsPerSec) + SS * MSecsPerSec) / MSecsPerDay else
-    EConvertError.CreateRes(@SDateEncodeError);
+    raise EConvertError.CreateRes(@SDateEncodeError);
 end;
 
 function _HasMultiByteString(Value: PAnsiChar): boolean;
@@ -4490,11 +4314,11 @@ begin
 end;
 
 function UInt32ToPDFString(Value : Cardinal): PDFString;
-var tmp: array[0..15] of AnsiChar;
+var tmp: array[0..23] of AnsiChar;
     P: PAnsiChar;
 begin
-  P := StrUInt32(@tmp[15],Value);
-  SetString(result,P,@tmp[15]-P);
+  P := StrUInt32(@tmp[23],Value);
+  SetString(result,P,@tmp[23]-P);
 end;
 
 function PdfRect(Left, Top, Right, Bottom: Single): TPdfRect;
@@ -4592,22 +4416,27 @@ begin
 end;
 
 function TPdfWrite.Add(Value: Integer): TPdfWrite;
-var t: array[0..15] of AnsiChar;
+var t: array[0..23] of AnsiChar;
     P: PAnsiChar;
 begin
-  if BEnd-B<=16 then
+  if BEnd-B<=24 then
     Save;
-  if Cardinal(Value)<10 then begin
-    B^ := AnsiChar(Value+48);
-    inc(B);
-  end else
-  if Cardinal(Value)<100 then begin
-    PWord(B)^ := TwoDigitLookupW[Value];
-    inc(B,2);
-  end else begin
-    P := StrInt32(@t[15],Value);
-    MoveFast(P^,B^,@t[15]-P);
-    inc(B,@t[15]-P);
+  if Cardinal(Value)<1000 then
+    if Cardinal(Value)<10 then begin
+      B^ := AnsiChar(Value+48);
+      inc(B);
+    end else
+    if Cardinal(Value)<100 then begin
+      PWord(B)^ := TwoDigitLookupW[Value];
+      inc(B,2);
+    end else begin
+      PCardinal(B)^ := PCardinal(SmallUInt32UTF8[Value])^;
+      inc(B,3);
+    end
+  else begin
+    P := StrInt32(@t[23],Value);
+    MoveFast(P^,B^,@t[23]-P);
+    inc(B,@t[23]-P);
   end;
   result := self;
 end;
@@ -4624,7 +4453,7 @@ begin
     if BEnd-B<=L then begin
       Save;
       inc(fDestStreamPosition,L);
-      fDestStream.Write(pointer(Text)^,L);
+      fDestStream.WriteBuffer(pointer(Text)^,L);
     end else begin
       MoveFast(pointer(Text)^,B^,L);
       inc(B,L);
@@ -4638,7 +4467,7 @@ begin
   if BEnd-B<=Len then begin
     Save;
     inc(fDestStreamPosition,Len);
-    fDestStream.Write(Text^,Len);
+    fDestStream.WriteBuffer(Text^,Len);
   end else begin
     MoveFast(Text^,B^,Len);
     inc(B,Len);
@@ -4693,27 +4522,20 @@ end;
 
 function TPdfWrite.AddEscapeContent(const Text: RawByteString): TPdfWrite;
 {$ifdef USE_PDFSECURITY}
-var tmp: PAnsiChar;
-    L: integer;
-    buf: array[byte] of AnsiChar;
-{$endif}
+var tmp: TSynTempBuffer;
+{$endif USE_PDFSECURITY}
 begin
+  if Text<>'' then
 {$ifdef USE_PDFSECURITY}
-  if (Text<>'') and (fDoc.fEncryption<>nil) then begin
-    L := length(Text);
-    if L<sizeof(buf) then
-      tmp := buf else
-      GetMem(tmp,L);
-    try
-      fDoc.fEncryption.EncodeBuffer(pointer(Text)^,tmp^,L);
-      result := AddEscape(tmp,L);
-    finally
-      if tmp<>buf then
-        Freemem(tmp);
-    end;
-  end else
-{$endif}
-  result := AddEscape(pointer(Text),length(Text));
+    if fDoc.fEncryption<>nil then begin
+      tmp.Init(length(Text));
+      fDoc.fEncryption.EncodeBuffer(pointer(Text)^,tmp.buf^,tmp.len);
+      AddEscape(tmp.buf,tmp.len);
+      tmp.Done;
+    end else
+{$endif USE_PDFSECURITY}
+    AddEscape(pointer(Text),length(Text));
+  result := self;
 end;
 
 function TPdfWrite.AddEscape(Text: PAnsiChar; TextLen: integer): TPdfWrite;
@@ -4947,17 +4769,17 @@ begin
 end;
 var L: Integer;
 {$ifdef USE_PDFSECURITY}
-    tmp: TWordDynArray;
-{$endif}
+    sectmp: TSynTempBuffer;
+{$endif USE_PDFSECURITY}
 begin
   if WideCharCount>0 then begin
 {$ifdef USE_PDFSECURITY}
     if fDoc.fEncryption<>nil then begin
-      SetLength(tmp,WideCharCount);
-      fDoc.fEncryption.EncodeBuffer(PW^,pointer(tmp)^,WideCharCount*2);
-      PW := pointer(tmp);
+      sectmp.Init(WideCharCount*2);
+      fDoc.fEncryption.EncodeBuffer(PW^,sectmp.buf^,WideCharCount*2);
+      PW := sectmp.buf;
     end;
-{$endif}
+{$endif USE_PDFSECURITY}
     repeat
       L := WideCharCount;
       if BEnd-B<=L*4 then begin
@@ -4970,6 +4792,10 @@ begin
       inc(B,L*4);
       dec(WideCharCount,L);
     until WideCharCount=0;
+{$ifdef USE_PDFSECURITY}
+    if fDoc.fEncryption<>nil then
+      sectmp.Done;
+{$endif USE_PDFSECURITY}
   end;
   result := self;
 end;
@@ -5123,8 +4949,8 @@ begin
   aChanged := fAddGlyphFont=fNone;
   Glyph := TTF.fUsedWide[TTF.FindOrAddUsedWideChar(Char)].Glyph;
   with Canvas.fDoc do
-    if fPDFA1 and (Glyph=0) and (fFontFallBackIndex<0) then
-      raise Exception.Create('PDFA/1 expects font fallback to be enabled, '+
+    if (fPDFA <> pdfaNone) and (Glyph=0) and (fFontFallBackIndex<0) then
+      raise Exception.Create('PDFA expects font fallback to be enabled, '+
         'and the required font is not available on this system') else
     if (Glyph=0) and fUseFontFallBack and (fFontFallBackIndex>=0) then begin
       if fAddGlyphFont=fMain then
@@ -5288,23 +5114,30 @@ begin
 end;
 
 function TPdfWrite.AddWithSpace(Value: Integer): TPdfWrite;
-var t: array[0..15] of AnsiChar;
+var t: array[0..25] of AnsiChar;
     P: PAnsiChar;
+    L: integer;
 begin
   if BEnd-B<=16 then
     Save;
-  if Cardinal(Value)<10 then begin
-    PWord(B)^ := Value+(48+32 shl 8);
-    inc(B,2);
-  end else
-  if Cardinal(Value)<100 then begin
-    PCardinal(B)^ := TwoDigitLookupW[Value]+32 shl 16;
-    inc(B,3);
-  end else begin
-    t[14] := ' ';
-    P := StrInt32(@t[14],Value);
-    MoveFast(P^,B^,@t[15]-P);
-    inc(B,@t[15]-P);
+  if Cardinal(Value)<1000 then
+    if Cardinal(Value)<10 then begin
+      PWord(B)^ := Value+(48+32 shl 8);
+      inc(B,2);
+    end else
+    if Cardinal(Value)<100 then begin
+      PCardinal(B)^ := TwoDigitLookupW[Value]+32 shl 16;
+      inc(B,3);
+    end else begin
+      PCardinal(B)^ := PCardinal(SmallUInt32UTF8[Value])^+32 shl 24;
+      inc(B,4);
+    end
+  else begin
+    t[24] := ' ';
+    P := StrInt32(@t[24],Value);
+    L := @t[25]-P;
+    MoveFast(P^,B^,L);
+    inc(B,@t[25]-P);
   end;
   result := self;
 end;
@@ -5313,7 +5146,7 @@ constructor TPdfWrite.Create(Destination: TPdfDocument; DestStream: TStream);
 begin
   fDoc := Destination;
   fDestStream := DestStream;
-  fDestStreamPosition := fDestStream.Seek(0,soFromCurrent);
+  fDestStreamPosition := fDestStream.Seek(0,soCurrent);
   fCodePage := fDoc.CodePage;
   B := @Tmp;
   Bend := B+high(Tmp);
@@ -5330,7 +5163,7 @@ var L: integer;
 begin
   L := B-@Tmp;
   inc(fDestStreamPosition,L);
-  fDestStream.Write(Tmp,L);
+  fDestStream.WriteBuffer(Tmp,L);
   B := @Tmp;
 end;
 
@@ -5343,7 +5176,7 @@ begin
     Save;
     result := '';
     SetLength(result,fDestStreamPosition);
-    fDestStream.Seek(0,soFromBeginning);
+    fDestStream.Seek(0,soBeginning);
     fDestStream.Read(pointer(result)^,fDestStreamPosition);
   end;
 end;
@@ -5438,7 +5271,7 @@ procedure TPdfTrailer.ToCrossReference(Doc: TPdfDocument);
 var i: integer;
 {$ifdef USE_PDFSECURITY}
     Enc: TPdfEncryption;
-{$endif}
+{$endif USE_PDFSECURITY}
 begin
   FXRef := Doc.FXref;
   FCrossReference := TPdfStream.Create(Doc);
@@ -5448,14 +5281,14 @@ begin
   FCrossReference.FDoNotEncrypt := true;
   if Doc.fEncryption<>nil then
     exit; // still a bug with encryption + objectstream
-{$endif}
+{$endif USE_PDFSECURITY}
   FObjectStream := TPdfObjectStream.Create(Doc);
 {$ifdef USE_PDFSECURITY}
   FObjectStream.FDoNotEncrypt := true;
   Enc := Doc.fEncryption;
   try
     Doc.fEncryption := nil; // force /ObjStm content not encrypted
-{$endif}
+{$endif USE_PDFSECURITY}
     for i := 1 to FXRef.ItemCount-1 do
     with FXRef.Items[i] do
       if (ByteOffset<=0) and Value.InheritsFrom(TPdfDictionary) then begin
@@ -5466,7 +5299,7 @@ begin
   finally
     Doc.fEncryption := Enc;
   end;
-{$endif}
+{$endif USE_PDFSECURITY}
 end;
 
 
@@ -5565,7 +5398,7 @@ function EnumFontsProcW(var LogFont: TLogFontW; var TextMetric: TTextMetric;
 var Temp: RawUTF8;
 begin
   with LogFont do
-    if (FontType=TRUETYPE_FONTTYPE) and (lfFaceName[0]<>'@') then begin
+    if ((FontType=DEVICE_FONTTYPE) or (FontType=TRUETYPE_FONTTYPE)) and (lfFaceName[0]<>'@') then begin
       Temp := RawUnicodeToUtf8(lfFaceName,StrLenW(lfFaceName));
       if (pointer(List)=nil) or (List[high(List)]<>Temp) then
         AddRawUTF8(List,Temp,true,true);
@@ -5580,15 +5413,22 @@ begin
   Result:= StrToIntDef(Buffer, GetACP);
 end;
 
-constructor TPdfDocument.Create(AUseOutlines: Boolean=false; ACodePage: integer=0;
-  APDFA1: boolean=false{$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption=nil{$endif});
-var LFont: TLogFontW; // either TLogFontA or TLogFontW idem as TRawUTF8List
+constructor TPdfDocument.Create(AUseOutlines: Boolean; ACodePage: integer;
+  {$ifdef USE_PDFALEVEL]}APDFA: TPdfALevel{$else}APDFA1: boolean{$endif}
+  {$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption{$endif});
+var LFont: TLogFontW; // TLogFontW to add to FTrueTypeFonts array as UTF-8
     i: integer;
 begin
-  fPDFA1 := APDFA1;
+  {$ifdef USE_PDFALEVEL]}
+  fPDFA:=APDFA;
+  {$else}
+  if APDFA1 then
+    fPDFA := pdfa1B else
+    fPDFA := pdfaNone;
+  {$endif USE_PDFALEVEL}
   {$ifdef USE_PDFSECURITY}
   fEncryption := AEncryption;
-  {$endif}
+  {$endif USE_PDFSECURITY}
   fTPdfPageClass := TPdfPage;
   if ACodePage=0 then
     FCodePage := LCIDToCodePage(SysLocale.DefaultLCID) else // GetACP can be<>SysLocale
@@ -5606,11 +5446,13 @@ begin
   EnumFontFamiliesExW(FDC, LFont, @EnumFontsProcW, PtrInt(@FTrueTypeFonts), 0);
   QuickSortRawUTF8(FTrueTypeFonts,length(FTrueTypeFonts),nil,@StrIComp);
   FCompressionMethod := cmFlateDecode; // deflate by default
-  fBookMarks := TRawUTF8List.Create;
+  fBookMarks := TRawUTF8List.Create([fCaseSensitive,fNoDuplicate]);
   fMissingBookmarks := TRawUTF8List.Create;
   FUseOutlines := AUseOutlines;
   fUseFontFallBack := true;
   fFontFallBackIndex := GetTrueTypeFontIndex('Arial Unicode MS');
+  if fFontFallBackIndex<0 then // greek/hebrew/cyrillic fallback
+    fFontFallBackIndex := GetTrueTypeFontIndex('Lucida Sans Unicode');
   if fFontFallBackIndex<0 then
     for i := 0 to high(FTrueTypeFonts) do
       if PosEx('Unicode',FTrueTypeFonts[i])>0 then begin
@@ -5648,172 +5490,7 @@ begin
   inherited;
   {$ifdef USE_PDFSECURITY}
   fEncryption.Free;
-  {$endif}
-end;
-
-function TPdfDocument.CreateEmbeddedFont(const FontName: RawUTF8): TPdfFont;
-const
-  // WidthArray[30]=Ascent, WidthArray[31]=Descent,
-  // WidthArray[32..255]=Width(#32..#255)
-  ARIAL_W_ARRAY: array[30..255] of SmallInt = ( 905, -212,
-    278,278,355,556,556,889,667,191,333,333,389,584,278,333,
-    278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,
-    584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,
-    722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,
-    469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,
-    556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,
-    584,0,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,
-    611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,
-    500,667,0,333,556,556,556,556,260,556,333,737,370,556,584,0,
-    737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,
-    834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,
-    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
-    667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,
-    278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,
-    556,500);
-  ARIAL_BOLD_W_ARRAY: array[30..255] of SmallInt = ( 905, -212,
-    278,333,474,556,556,889,722,238,333,333,389,584,278,333,
-    278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,
-    584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,
-    722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,
-    584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,
-    611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,
-    584,0,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,
-    611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,
-    500,667,0,333,556,556,556,556,280,556,333,737,370,556,584,0,
-    737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,
-    834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,
-    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
-    667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,
-    278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,
-    611,556);
-  ARIAL_ITALIC_W_ARRAY: array[30..255] of SmallInt = ( 905, -212,
-    278,278,355,556,556,889,667,191,333,333,389,584,278,333,
-    278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,
-    584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,
-    722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,
-    469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,
-    556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,
-    584,0,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,
-    611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,
-    500,667,0,333,556,556,556,556,260,556,333,737,370,556,584,0,
-    737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,
-    834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,
-    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
-    667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,
-    278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,
-    556,500);
-  ARIAL_BOLDITALIC_W_ARRAY: array[30..255] of SmallInt = ( 905, -212,
-    278,333,474,556,556,889,722,238,333,333,389,584,278,333,
-    278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,
-    584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,
-    722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,
-    584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,
-    611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,
-    584,0,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,
-    611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,
-    500,667,0,333,556,556,556,556,280,556,333,737,370,556,584,0,
-    737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,
-    834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,
-    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
-    667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,
-    278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,
-    611,556);
-  TIMES_ROMAN_W_ARRAY: array[30..255] of SmallInt = ( 891, -216,
-    250,333,408,500,500,833,778,180,333,333,500,564,250,333,
-    250,278,500,500,500,500,500,500,500,500,500,500,278,278,564,564,
-    564,444,921,722,667,667,722,611,556,722,722,333,389,722,611,889,
-    722,722,556,722,667,556,611,722,722,944,722,722,611,333,278,333,
-    469,500,333,444,500,444,500,444,333,500,500,278,278,500,278,778,
-    500,500,500,500,333,389,278,500,500,722,500,500,444,480,200,480,
-    541,0,500,0,333,500,444,1000,500,500,333,1000,556,333,889,0,
-    611,0,0,333,333,444,444,350,500,1000,333,980,389,333,722,0,
-    444,722,0,333,500,500,500,500,200,500,333,760,276,500,564,0,
-    760,333,400,564,300,300,333,500,453,250,333,300,310,500,750,750,
-    750,444,722,722,722,722,722,722,889,667,611,611,611,611,333,333,
-    333,333,722,722,722,722,722,722,722,564,722,722,722,722,722,722,
-    556,500,444,444,444,444,444,444,667,444,444,444,444,444,278,278,
-    278,278,500,500,500,500,500,500,500,564,500,500,500,500,500,500,
-    500,500);
-  TIMES_ITALIC_W_ARRAY: array[30..255] of SmallInt = ( 891, -216,
-    250,333,420,500,500,833,778,214,333,333,500,675,250,333,
-    250,278,500,500,500,500,500,500,500,500,500,500,333,333,675,675,
-    675,500,920,611,611,667,722,611,611,722,722,333,444,667,556,833,
-    667,722,611,722,611,500,556,722,611,833,611,556,556,389,278,389,
-    422,500,333,500,500,444,500,444,278,500,500,278,278,444,278,722,
-    500,500,500,500,389,389,278,500,444,667,444,444,389,400,275,400,
-    541,0,500,0,333,500,556,889,500,500,333,1000,500,333,944,0,
-    556,0,0,333,333,556,556,350,500,889,333,980,389,333,667,0,
-    389,556,0,389,500,500,500,500,275,500,333,760,276,500,675,0,
-    760,333,400,675,300,300,333,500,523,250,333,300,310,500,750,750,
-    750,500,611,611,611,611,611,611,889,667,611,611,611,611,333,333,
-    333,333,722,667,722,722,722,722,722,675,722,722,722,722,722,556,
-    611,500,500,500,500,500,500,500,667,444,444,444,444,444,278,278,
-    278,278,500,500,500,500,500,500,500,675,500,500,500,500,500,444,
-    500,444);
-  TIMES_BOLD_W_ARRAY: array[30..255] of SmallInt = ( 891, -216,
-    250,333,555,500,500,1000,833,278,333,333,500,570,250,333,
-    250,278,500,500,500,500,500,500,500,500,500,500,333,333,570,570,
-    570,500,930,722,667,722,722,667,611,778,778,389,500,778,667,944,
-    722,778,611,778,722,556,667,722,722,1000,722,722,667,333,278,333,
-    581,500,333,500,556,444,556,444,333,500,556,278,333,556,278,833,
-    556,500,556,556,444,389,333,556,500,722,500,500,444,394,220,394,
-    520,0,500,0,333,500,500,1000,500,500,333,1000,556,333,1000,0,
-    667,0,0,333,333,500,500,350,500,1000,333,1000,389,333,722,0,
-    444,722,0,333,500,500,500,500,220,500,333,747,300,500,570,0,
-    747,333,400,570,300,300,333,556,540,250,333,300,330,500,750,750,
-    750,500,722,722,722,722,722,722,1000,722,667,667,667,667,389,389,
-    389,389,722,722,778,778,778,778,778,570,778,722,722,722,722,722,
-    611,556,500,500,500,500,500,500,722,444,444,444,444,444,278,278,
-    278,278,500,556,500,500,500,500,500,570,500,556,556,556,556,500,
-    556,500);
-  TIMES_BOLDITALIC_W_ARRAY: array[30..255] of SmallInt = ( 891, -216,
-    250,389,555,500,500,833,778,278,333,333,500,570,250,333,
-    250,278,500,500,500,500,500,500,500,500,500,500,333,333,570,570,
-    570,500,832,667,667,667,722,667,667,722,778,389,500,667,611,889,
-    722,722,611,722,667,556,611,722,667,889,667,611,611,333,278,333,
-    570,500,333,500,500,444,500,444,333,500,556,278,278,500,278,778,
-    556,500,500,500,389,389,278,556,444,667,500,444,389,348,220,348,
-    570,0,500,0,333,500,500,1000,500,500,333,1000,556,333,944,0,
-    611,0,0,333,333,500,500,350,500,1000,333,1000,389,333,722,0,
-    389,611,0,389,500,500,500,500,220,500,333,747,266,500,606,0,
-    747,333,400,570,300,300,333,576,500,250,333,300,300,500,750,750,
-    750,500,667,667,667,667,667,667,944,667,667,667,667,667,389,389,
-    389,389,722,722,722,722,722,722,722,570,722,722,722,722,722,611,
-    611,500,500,500,500,500,500,500,722,444,444,444,444,444,278,278,
-    278,278,500,556,500,500,500,500,500,570,500,556,556,556,556,444,
-    500,444);
-  STANDARDFONTS: array[0..11] of record
-    Name: RawUTF8;
-    Widths: PSmallIntArray;
-  end = (
-    (Name: 'Courier'; Widths: nil), // Widths:nil -> set all widths to 600
-    (Name: 'Courier-Bold'; Widths: nil),
-    (Name: 'Courier-Oblique'; Widths: nil),
-    (Name: 'Courier-BoldOblique'; Widths: nil),
-    (Name: 'Helvetica'; Widths: @ARIAL_W_ARRAY),
-    (Name: 'Helvetica-Bold'; Widths: @ARIAL_BOLD_W_ARRAY),
-    (Name: 'Helvetica-Oblique'; Widths: @ARIAL_ITALIC_W_ARRAY),
-    (Name: 'Helvetica-BoldOblique'; Widths: @ARIAL_BOLDITALIC_W_ARRAY),
-    (Name: 'Times'; Widths: @TIMES_ROMAN_W_ARRAY),
-    (Name: 'Times-Bold'; Widths: @TIMES_BOLD_W_ARRAY),
-    (Name: 'Times-Oblique'; Widths: @TIMES_ITALIC_W_ARRAY),
-    (Name: 'Times-BoldOblique'; Widths: @TIMES_BOLDITALIC_W_ARRAY) );
-var i: integer;
-    FontName2: PDFString;
-begin
-  // handle default embedded fonts
-  if StandardFontsReplace then begin
-    // fonts width are for WinAnsi encoding only
-    FontName2 := RawUTF8ToPDFString(FontName);
-    for i := 0 to high(STANDARDFONTS) do
-      if SameTextU(STANDARDFONTS[i].Name,FontName) then begin
-        result := TPdfFontType1.Create(FXref,FontName2,STANDARDFONTS[i].Widths);
-        RegisterFont(result);
-        Exit;
-      end;
-  end;
-  result := nil;
+  {$endif USE_PDFSECURITY}
 end;
 
 function TPdfDocument.RegisterXObject(AObject: TPdfXObject; const AName: PDFString): integer;
@@ -5957,8 +5634,7 @@ function TPdfDocument.CreateLink(const ARect: TPdfRect; const aBookmarkName: Raw
 var aDest: TPdfDestination;
 begin
   result := CreateAnnotation(asLink,ARect,BorderStyle,BorderWidth);
-  with fBookmarks do
-    aDest := TPdfDestination(Objects[IndexOf(aBookmarkName)]);
+  aDest := fBookmarks.GetObjectFrom(aBookmarkName);
   if aDest=nil then
     fMissingBookmarks.AddObject(aBookmarkName,result) else
     result.AddItem('Dest',aDest.GetValue);
@@ -5974,6 +5650,7 @@ begin
   aURIObj.AddItem('S', 'URI');
   aURIObj.AddItemTextUTF8('URI', url);
   FXref.AddObject(aURIObj);
+  Result.AddItem('A', aURIObj);
 end;
 
 function TPdfDocument.CreateDestination: TPdfDestination;
@@ -5997,11 +5674,11 @@ begin
   aDest.Top := Round(TopPosition);
   fBookMarks.AddObject(aBookmarkName,aDest);
   with fMissingBookmarks do
-  for i := Count-1 downto 0 do
-    if Get(i)=aBookmarkName then begin
-      TPdfDictionary(Objects[i]).AddItem('Dest',aDest.GetValue);
-      Delete(i);
-    end;
+    for i := Count-1 downto 0 do
+      if Strings[i]=aBookmarkName then begin
+        TPdfDictionary(Objects[i]).AddItem('Dest',aDest.GetValue);
+        Delete(i);
+      end;
 end;
 
 procedure TPdfDocument.NewDoc;
@@ -6011,12 +5688,11 @@ var CatalogDictionary: TPdfDictionary;
     RGB: TPdfStream;
     ID: TPdfArray;
     IDs: PDFString;
-    i: integer;
     NeedFileID: boolean;
     FileID: array[0..3] of cardinal;
     {$ifndef USE_PDFSECURITY}
     P: PAnsiChar;
-    {$endif}
+    {$endif USE_PDFSECURITY}
 const
   ICC: array[0..139] of cardinal = (
     805437440,1161970753,4098,1920233069,541214546,542792024,134270983,318769920,989868800,
@@ -6075,19 +5751,19 @@ begin
   {$ifdef USE_PDFSECURITY}
   if fEncryption<>nil then
     NeedFileID := true;
-  {$endif}
-  if PDFA1 then begin
+  {$endif USE_PDFSECURITY}
+  if PDFA<>pdfaNone then begin
     if fFileFormat<pdf14 then
       fFileFormat := pdf14;
     {$ifdef USE_PDFSECURITY}
     if fEncryption<>nil then
-      raise EPdfInvalidOperation.Create('PDF/A-1 not allowed when encryption is enabled');
-    {$endif}
+      raise EPdfInvalidOperation.Create('PDF/A not allowed when encryption is enabled');
+    {$endif USE_PDFSECURITY}
     fUseFontFallBack := true;
     FOutputIntents := TPdfArray.Create(FXref);
     Dico := TPdfDictionary.Create(FXRef);
     Dico.AddItem('Type','OutputIntent');
-    Dico.AddItem('S','GTS_PDFA1');
+    Dico.AddItem('S','GTS_PDFA1');  // there is no definition GTS_PDFA2 or GTS_PDFA3
     Dico.AddItemText('OutputConditionIdentifier','sRGB');
     Dico.AddItemText('RegistryName','http://www.color.org');
     RGB := TPdfStream.Create(self);
@@ -6107,10 +5783,7 @@ begin
     NeedFileID := true;
   end;
   if NeedFileID then begin
-    Randomize;
-    for i := 0 to high(FileID) do
-      FileID[i] := cardinal(Random(MaxInt));
-    inc(FileID[0],GetTickCount);
+    FillRandom(@FileID, 4, true);
     {$ifdef USE_PDFSECURITY}
     fFileID := MD5Buf(FileID[0],16);
     IDs := '<'+RawByteString(MD5DigestToString(fFileID))+'>';
@@ -6120,7 +5793,7 @@ begin
     P[0] := '<';
     SynCommons.BinToHex(PAnsiChar(@FileID[0]),P+1,16);
     P[33] := '>';
-    {$endif}
+    {$endif USE_PDFSECURITY}
     ID := TPdfArray.Create(FXref);
     ID.AddItem(TPdfRawText.Create(IDs));
     ID.AddItem(TPdfRawText.Create(IDs));
@@ -6129,7 +5802,7 @@ begin
   {$ifdef USE_PDFSECURITY}
   if fEncryption<>nil then
     fEncryption.AttachDocument(self);
-  {$endif}
+  {$endif USE_PDFSECURITY}
 end;
 
 function TPdfDocument.AddXObject(const AName: PDFString; AXObject: TPdfXObject): integer;
@@ -6167,6 +5840,15 @@ begin
   result.AddItem('Contents',TPdfStream.Create(self));
   // assign this page to the current PDF canvas
   FCanvas.SetPage(result);
+end;
+
+function TPdfDocument.AddTrueTypeFont(const TTFName: RawUtf8): boolean;
+begin
+  result := GetTrueTypeFontIndex(TTFName) < 0;
+  if not result then
+    exit;
+  AddRawUTF8(FTrueTypeFonts,TTFName);
+  QuickSortRawUTF8(FTrueTypeFonts,length(FTrueTypeFonts),nil,@StrIComp);
 end;
 
 procedure TPdfDocument.FreeDoc;
@@ -6220,6 +5902,8 @@ procedure TPdfDocument.SaveToStreamDirectBegin(AStream: TStream;
 const PDFHEADER: array[TPdfFileFormat] of PDFString = (
     '%PDF-1.3'#10, '%PDF-1.4'#10'%'#228#229#230#240#10,
     '%PDF-1.5'#10'%'#241#242#243#244#10, '%PDF-1.6'#10'%'#245#246#247#248#10);
+const PDFAPART:        array[TPdfALevel] of PDFString = ('', '1', '1', '2', '2', '3', '3');
+const PDFACONFORMANCE: array[TPdfALevel] of PDFString = ('', 'A', 'B', 'A', 'B', 'A', 'B');
 begin
   if fSaveToStreamWriter<>nil then
     raise EPdfInvalidOperation.Create('SaveToStreamDirectBegin called twice');
@@ -6229,7 +5913,7 @@ begin
     FInfo.ModDate := ForceModDate;
   FRoot.SaveOpenAction;
   // some PDF/A-1 requirements
-  if PDFA1 then begin
+  if PDFA<>pdfaNone then begin
     FMetaData.Writer.Add(RawByteString(
       '<?xpacket begin="'#$EF#$BB#$BF'" id="W5M0MpCehiHzreSzNTczkc9d"?>'+
       '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="SynPdf">'+
@@ -6251,7 +5935,7 @@ begin
       '<pdf:Keywords>').Add(StringToUTF8(Info.Keywords)).Add('</pdf:Keywords>'+
       '<pdf:Producer>'+PDF_PRODUCER+'</pdf:Producer></rdf:Description>'+
       '<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">'+
-      '<pdfaid:part>1</pdfaid:part><pdfaid:conformance>A</pdfaid:conformance>'+
+      '<pdfaid:part>'+PDFAPART[PDFA]+'</pdfaid:part><pdfaid:conformance>'+PDFACONFORMANCE[PDFA]+'</pdfaid:conformance>'+
       '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>');
   end;
   // write beginning of the content
@@ -6399,7 +6083,7 @@ end;
 function TPdfDocument.GetEmbeddedTTFIgnore: TRawUTF8List;
 begin
   if fEmbeddedTTFIgnore=nil then
-    fEmbeddedTTFIgnore := TRawUTF8List.Create;
+    fEmbeddedTTFIgnore := TRawUTF8List.Create([fCaseSensitive,fNoDuplicate]);
   result := fEmbeddedTTFIgnore;
 end;
 
@@ -6458,11 +6142,13 @@ const
   TTFCFP_MS_PLATFORMID = 3;
   TTFCFP_SYMBOL_CHAR_SET = 0;
   TTFCFP_UNICODE_CHAR_SET = 1;
+  TTFCFP_DONT_CARE = 65535;
 
   TTFCFP_FLAGS_SUBSET = 1;
   TTFMFP_SUBSET = 0;
   TTFCFP_FLAGS_TTC = 4;
-  TTCF_TABLE = $66637474;
+  HEAD_TABLE = $64616568; // 'head'
+  TTCF_TABLE = $66637474; // 'ttcf'
 
 type
   /// a TTF name record used for the 'name' Format 4 table
@@ -6486,9 +6172,6 @@ type
     FirstNameRecord: TNameRecord;
   end;
 
-function TPdfDocument.TTFFontPostcriptName(aFontIndex: integer; AStyle: TPdfFontStyles;
-  AFont: TPdfFontTrueType): PDFString;
-// see http://www.microsoft.com/typography/OTSPEC/name.htm
 function TrueTypeFontName(const aFontName: RawUTF8; AStyle: TPdfFontStyles): PDFString;
 var i: Integer;
 begin // from PDF 1.3 #5.5.2
@@ -6496,6 +6179,9 @@ begin // from PDF 1.3 #5.5.2
   for i := length(result) downto 1 do
     if (Result[i]<=' ') or (Result[i]>=#127) then
       Delete(result,i,1); // spaces and not ASCII chars are removed
+  if not IsAnsiCompatible(aFontName) then // unique non-void font name
+    result := result+PDFString(CardinalToHexLower(
+      crc32c(0,pointer(aFontName),length(aFontName))));
   if pfsItalic in AStyle then
     if pfsBold in AStyle then
       result := result+',BoldItalic' else
@@ -6503,6 +6189,10 @@ begin // from PDF 1.3 #5.5.2
     if pfsBold in AStyle then
       result := result+',Bold';
 end;
+
+function TPdfDocument.TTFFontPostcriptName(aFontIndex: integer; AStyle: TPdfFontStyles;
+  AFont: TPdfFontTrueType): PDFString;
+// see http://www.microsoft.com/typography/OTSPEC/name.htm
 const NAME_POSTCRIPT = 6;
 var fName: TWordDynArray;
     name: ^TNameFmt4;
@@ -6512,9 +6202,10 @@ var fName: TWordDynArray;
     PW: pointer;
 begin
   aFontName := FTrueTypeFonts[aFontIndex];
-  result := TrueTypeFontName(aFontName,AStyle);
-  if IsAnsiCompatible(aFontName) or (AFont=nil) then
+  if IsAnsiCompatible(aFontName) or (AFont=nil) then begin
+    result := TrueTypeFontName(aFontName,AStyle);
     exit; // no need to search for the PostScript name field in TTF content
+  end;
   name := GetTTFData(GetDCWithFont(AFont),'name',fName);
   if (name=nil) or (name^.format<>0) then
     exit;
@@ -6530,8 +6221,8 @@ begin
         inc(PByte(PW));
         SwapBuffer(PW,L);   // convert from big-endian at correct odd offset
       end;
-      SetLength(result,L);
-      RawUnicodeToWinPChar(pointer(Result),PW,L);
+      RawUnicodeToUtf8(PW,L,aFontName);
+      result := TrueTypeFontName(aFontName,AStyle); // adjust name and style
       exit;
     end else
     inc(Rec);
@@ -6723,11 +6414,25 @@ begin
   NewDoc;
 end;
 
-procedure TPdfDocument.SetPDFA1(const Value: boolean);
+procedure TPdfDocument.SetPDFA(const Value: TPdfALevel);
 begin
-  fPDFA1 := Value;
+  fPDFA := Value;
   NewDoc;
 end;
+
+{$ifndef USE_PDFALEVEL}
+function  TPdfDocument.GetPDFA1: boolean;
+begin
+  result := (fPDFA = pdfa1B);
+end;
+
+procedure TPdfDocument.SetPDFA1(const Value: boolean);
+begin
+  if Value then
+    SetPDFA(pdfa1B) else
+    SetPDFA(pdfaNone);
+end;
+{$endif USE_PDFALEVEL}
 
 procedure TPdfDocument.SetFontFallBackName(const Value: string);
 begin
@@ -6801,17 +6506,6 @@ begin
   FPage.FontSize := ASize;
 end;
 
-function StandardFontName(const AName: RawUTF8; AStyle: TPdfFontStyles): RawUTF8;
-begin
-  result := AName;
-  if pfsItalic in AStyle then
-    if pfsBold in AStyle then
-      result := result+'-BoldOblique' else
-      result := result+'-Oblique' else
-    if pfsBold in AStyle then
-      result := result+'-Bold';
-end;
-
 procedure InitializeLogFontW(const aFontName: RawUTF8; aStyle: TPdfFontStyles;
   var aFont: TLogFontW);
 begin
@@ -6828,23 +6522,167 @@ begin
   end;
 end;
 
+const // see PDF ref 9.6.2.2: Standard Type 1 Fonts
+  // WidthArray[30]=Ascent, WidthArray[31]=Descent,
+  // WidthArray[32..255]=Width(#32..#255)
+  ARIAL_W_ARRAY: array[30..255] of SmallInt = (
+    905,-212,278,278,355,556,556,889,667,191,333,333,389,584,278,333,
+    278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,
+    584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,
+    722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,
+    469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,
+    556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,
+    584,0,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,
+    611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,
+    500,667,0,333,556,556,556,556,260,556,333,737,370,556,584,0,
+    737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,
+    834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,
+    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
+    667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,
+    278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500);
+  ARIAL_BOLD_W_ARRAY: array[30..255] of SmallInt = (
+    905,-212,278,333,474,556,556,889,722,238,333,333,389,584,278,333,
+    278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,
+    584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,
+    722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,
+    584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,
+    611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,
+    584,0,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,
+    611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,
+    500,667,0,333,556,556,556,556,280,556,333,737,370,556,584,0,
+    737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,
+    834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,
+    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
+    667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,
+    278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556);
+  ARIAL_ITALIC_W_ARRAY: array[30..255] of SmallInt = (
+    905,-212,278,278,355,556,556,889,667,191,333,333,389,584,278,333,
+    278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,
+    584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,
+    722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,
+    469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,
+    556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,
+    584,0,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,
+    611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,
+    500,667,0,333,556,556,556,556,260,556,333,737,370,556,584,0,
+    737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,
+    834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,
+    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
+    667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,
+    278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500);
+  ARIAL_BOLDITALIC_W_ARRAY: array[30..255] of SmallInt = (
+    905,-212,278,333,474,556,556,889,722,238,333,333,389,584,278,333,
+    278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,
+    584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,
+    722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,
+    584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,
+    611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,
+    584,0,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,
+    611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,
+    500,667,0,333,556,556,556,556,280,556,333,737,370,556,584,0,
+    737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,
+    834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,
+    278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,
+    667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,
+    278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556);
+  TIMES_ROMAN_W_ARRAY: array[30..255] of SmallInt = (
+    891,-216,250,333,408,500,500,833,778,180,333,333,500,564,250,333,
+    250,278,500,500,500,500,500,500,500,500,500,500,278,278,564,564,
+    564,444,921,722,667,667,722,611,556,722,722,333,389,722,611,889,
+    722,722,556,722,667,556,611,722,722,944,722,722,611,333,278,333,
+    469,500,333,444,500,444,500,444,333,500,500,278,278,500,278,778,
+    500,500,500,500,333,389,278,500,500,722,500,500,444,480,200,480,
+    541,0,500,0,333,500,444,1000,500,500,333,1000,556,333,889,0,
+    611,0,0,333,333,444,444,350,500,1000,333,980,389,333,722,0,
+    444,722,0,333,500,500,500,500,200,500,333,760,276,500,564,0,
+    760,333,400,564,300,300,333,500,453,250,333,300,310,500,750,750,
+    750,444,722,722,722,722,722,722,889,667,611,611,611,611,333,333,
+    333,333,722,722,722,722,722,722,722,564,722,722,722,722,722,722,
+    556,500,444,444,444,444,444,444,667,444,444,444,444,444,278,278,
+    278,278,500,500,500,500,500,500,500,564,500,500,500,500,500,500,500,500);
+  TIMES_ITALIC_W_ARRAY: array[30..255] of SmallInt = (
+    891,-216,250,333,420,500,500,833,778,214,333,333,500,675,250,333,
+    250,278,500,500,500,500,500,500,500,500,500,500,333,333,675,675,
+    675,500,920,611,611,667,722,611,611,722,722,333,444,667,556,833,
+    667,722,611,722,611,500,556,722,611,833,611,556,556,389,278,389,
+    422,500,333,500,500,444,500,444,278,500,500,278,278,444,278,722,
+    500,500,500,500,389,389,278,500,444,667,444,444,389,400,275,400,
+    541,0,500,0,333,500,556,889,500,500,333,1000,500,333,944,0,
+    556,0,0,333,333,556,556,350,500,889,333,980,389,333,667,0,
+    389,556,0,389,500,500,500,500,275,500,333,760,276,500,675,0,
+    760,333,400,675,300,300,333,500,523,250,333,300,310,500,750,750,
+    750,500,611,611,611,611,611,611,889,667,611,611,611,611,333,333,
+    333,333,722,667,722,722,722,722,722,675,722,722,722,722,722,556,
+    611,500,500,500,500,500,500,500,667,444,444,444,444,444,278,278,
+    278,278,500,500,500,500,500,500,500,675,500,500,500,500,500,444,500,444);
+  TIMES_BOLD_W_ARRAY: array[30..255] of SmallInt = (
+    891,-216,250,333,555,500,500,1000,833,278,333,333,500,570,250,333,
+    250,278,500,500,500,500,500,500,500,500,500,500,333,333,570,570,
+    570,500,930,722,667,722,722,667,611,778,778,389,500,778,667,944,
+    722,778,611,778,722,556,667,722,722,1000,722,722,667,333,278,333,
+    581,500,333,500,556,444,556,444,333,500,556,278,333,556,278,833,
+    556,500,556,556,444,389,333,556,500,722,500,500,444,394,220,394,
+    520,0,500,0,333,500,500,1000,500,500,333,1000,556,333,1000,0,
+    667,0,0,333,333,500,500,350,500,1000,333,1000,389,333,722,0,
+    444,722,0,333,500,500,500,500,220,500,333,747,300,500,570,0,
+    747,333,400,570,300,300,333,556,540,250,333,300,330,500,750,750,
+    750,500,722,722,722,722,722,722,1000,722,667,667,667,667,389,389,
+    389,389,722,722,778,778,778,778,778,570,778,722,722,722,722,722,
+    611,556,500,500,500,500,500,500,722,444,444,444,444,444,278,278,
+    278,278,500,556,500,500,500,500,500,570,500,556,556,556,556,500,556,500);
+  TIMES_BOLDITALIC_W_ARRAY: array[30..255] of SmallInt = (
+    891,-216,250,389,555,500,500,833,778,278,333,333,500,570,250,333,
+    250,278,500,500,500,500,500,500,500,500,500,500,333,333,570,570,
+    570,500,832,667,667,667,722,667,667,722,778,389,500,667,611,889,
+    722,722,611,722,667,556,611,722,667,889,667,611,611,333,278,333,
+    570,500,333,500,500,444,500,444,333,500,556,278,278,500,278,778,
+    556,500,500,500,389,389,278,556,444,667,500,444,389,348,220,348,
+    570,0,500,0,333,500,500,1000,500,500,333,1000,556,333,944,0,
+    611,0,0,333,333,500,500,350,500,1000,333,1000,389,333,722,0,
+    389,611,0,389,500,500,500,500,220,500,333,747,266,500,606,0,
+    747,333,400,570,300,300,333,576,500,250,333,300,300,500,750,750,
+    750,500,667,667,667,667,667,667,944,667,667,667,667,667,389,389,
+    389,389,722,722,722,722,722,722,722,570,722,722,722,722,722,611,
+    611,500,500,500,500,500,500,500,722,444,444,444,444,444,278,278,
+    278,278,500,556,500,500,500,500,500,570,500,556,556,556,556,444,500,444);
+  STANDARDFONTS: array[0..11] of record
+    Name: PDFString;
+    Widths: PSmallIntArray;
+  end = (
+    (Name: 'Times-Roman'; Widths: @TIMES_ROMAN_W_ARRAY),
+    (Name: 'Times-Bold'; Widths: @TIMES_BOLD_W_ARRAY),
+    (Name: 'Times-Italic'; Widths: @TIMES_ITALIC_W_ARRAY),
+    (Name: 'Times-BoldItalic'; Widths: @TIMES_BOLDITALIC_W_ARRAY),
+    (Name: 'Helvetica'; Widths: @ARIAL_W_ARRAY),
+    (Name: 'Helvetica-Bold'; Widths: @ARIAL_BOLD_W_ARRAY),
+    (Name: 'Helvetica-Oblique'; Widths: @ARIAL_ITALIC_W_ARRAY),
+    (Name: 'Helvetica-BoldOblique'; Widths: @ARIAL_BOLDITALIC_W_ARRAY),
+    (Name: 'Courier'; Widths: nil), // Widths:nil -> set all widths to 600
+    (Name: 'Courier-Bold'; Widths: nil),
+    (Name: 'Courier-Oblique'; Widths: nil),
+    (Name: 'Courier-BoldOblique'; Widths: nil));
+
 function TPdfCanvas.SetFont(const AName: RawUTF8; ASize: single; AStyle: TPdfFontStyles;
   ACharSet: integer=-1; AForceTTF: integer=-1; AIsFixedWidth: boolean=false): TPdfFont;
 const
-  STAND_FONTS_PDF: array[0..2] of RawUTF8 = ('Helvetica','Courier','Times');
-  STAND_FONTS_WIN: array[0..2] of RawUTF8 = ('Arial','Courier New','Times New Roman');
-  STAND_FONTS_UPPER: array[0..2] of PAnsiChar = ('HELVETICA','COURIER','TIMES');
-procedure SetEmbeddedFont(ABaseFont: RawUTF8);
-begin
-  ABaseFont := StandardFontName(ABaseFont,AStyle);
-  result := fDoc.GetRegisteredNotTrueTypeFont(RawUTF8ToPDFString(ABaseFont));
-  if result=nil then
-    // font not already registered -> try to add now
-    result := fDoc.CreateEmbeddedFont(ABaseFont);
-  SetPDFFont(result,ASize);
-end;
+  STAND_FONTS_PDF: array[TPdfFontStandard] of RawUTF8 = ('Times','Helvetica','Courier');
+  STAND_FONTS_WIN: array[TPdfFontStandard] of RawUTF8 = ('Times New Roman','Arial','Courier New');
+  STAND_FONTS_UPPER: array[TPdfFontStandard] of PAnsiChar = ('TIMES','HELVETICA','COURIER');
+  procedure SetEmbeddedFont(Standard: TPdfFontStandard);
+  var BaseIndex: integer;
+  begin
+    BaseIndex := ord(Standard)*4+(byte(AStyle) and 3);
+    result := fDoc.GetRegisteredNotTrueTypeFont(STANDARDFONTS[BaseIndex].Name);
+    if result=nil then begin // font not already registered -> add now
+      with STANDARDFONTS[BaseIndex] do
+        result := TPdfFontType1.Create(fDoc.FXref,Name,Widths);
+      fDoc.RegisterFont(result);
+    end;
+    SetPDFFont(result,ASize); 
+  end;
 var AFont: TLogFontW;
-    FontIndex, i: integer;
+    FontIndex: integer;
+    f: TPdfFontStandard;
 begin
   result := nil;
   if (self=nil) or (FDoc=nil) then
@@ -6855,10 +6693,10 @@ begin
     // handle use embedded fonts for standard fonts, if needed
     if (fDoc.FCharSet=ANSI_CHARSET) and fDoc.StandardFontsReplace then begin
       // standard/embedded fonts are WinAnsi only
-      for i := low(STAND_FONTS_PDF) to high(STAND_FONTS_PDF) do
-        if SameTextU(AName,STAND_FONTS_PDF[i]) or
-           SameTextU(AName,STAND_FONTS_WIN[i]) then begin
-          SetEmbeddedFont(STAND_FONTS_PDF[i]);
+      for f := low(f) to high(f) do
+        if SameTextU(AName,STAND_FONTS_PDF[f]) or
+           SameTextU(AName,STAND_FONTS_WIN[f]) then begin
+          SetEmbeddedFont(f);
           if result<>nil then
             exit; // we got a standard/embedded font
         end;
@@ -6868,12 +6706,12 @@ begin
       // search the font in the global system-wide true type fonts list
       FontIndex := fDoc.GetTrueTypeFontIndex(AName);
       if FontIndex<0 then begin // unknown, device or raster font
-        if AIsFixedWidth then // sounds to be fixed-width -> set 'Courier'
-          FontIndex := fDoc.GetTrueTypeFontIndex(STAND_FONTS_WIN[1]);
+        if AIsFixedWidth then // sounds to be fixed-width -> set 'Courier New'
+          FontIndex := fDoc.GetTrueTypeFontIndex(STAND_FONTS_WIN[pfsCourier]);
         // do not exist as is: find equivalency of some "standard" font
-        for i := low(STAND_FONTS_UPPER) to high(STAND_FONTS_UPPER) do
-          if (FontIndex<0) and IdemPChar(pointer(AName),STAND_FONTS_UPPER[i]) then
-            FontIndex := fDoc.GetTrueTypeFontIndex(STAND_FONTS_WIN[i]);
+        for f := low(f) to high(f) do
+          if (FontIndex<0) and IdemPChar(pointer(AName),STAND_FONTS_UPPER[f]) then
+            FontIndex := fDoc.GetTrueTypeFontIndex(STAND_FONTS_WIN[f]);
         if FontIndex<0 then begin // use variable width default font
           FontIndex := FDoc.fFontFallBackIndex;
           if FontIndex<0 then
@@ -7467,7 +7305,7 @@ begin
     if FPage.FFont.FTrueTypeFontsIndex=0 then begin
       Ansi := CurrentAnsiConvert.UnicodeBufferToAnsi(PW,StrLenW(PW));
       i := 1;
-      while i<length(Ansi) do begin // loop is MBCS ready
+      while i<=length(Ansi) do begin // loop is MBCS ready
         inc(W,FPage.FFont.GetAnsiCharWidth(Ansi,i));
         if SysLocale.FarEast  then
           i := NextCharIndex(Ansi,i) else
@@ -7667,7 +7505,7 @@ begin
         end;
       end;
 end;
-{$endif}
+{$endif USE_ARC}
 
 procedure TPdfCanvas.PointI(x, y: Single);
 begin
@@ -8076,7 +7914,7 @@ begin
     fAscent := WidthArray^[0];
     fDescent := WidthArray^[1];
     // create "Width" table of the font  (256-32=224)
-    Data.AddItem('Widths',TPdfArray.Create(AXref, @WidthArray^[2], 224), true);
+    Data.AddItem('Widths', TPdfArray.Create(AXref, @WidthArray^[2], 224), true);
   end;
   // initialize char widths array by default value (if missing width parameter
   // is defined, use it as default value.)
@@ -8116,7 +7954,11 @@ function TPdfFontTrueType.FindOrAddUsedWideChar(aWideChar: WideChar): integer;
 var n, i: integer;
     aSymbolAnsiChar: AnsiChar;
 begin
-  self := WinAnsiFont;
+  if WinAnsiFont <> self then // WinAnsiFont.fUsedWide[] = glyphs for ShowText 
+  begin
+    result := WinAnsiFont.FindOrAddUsedWideChar(aWideChar);
+    exit;
+  end;
   result := fUsedWideChar.Add(ord(aWideChar));
   if result<0 then begin
     result := -(result+1); // this WideChar was already existing -> return index
@@ -8160,9 +8002,9 @@ begin
       if fUsedWide[i].Glyph=aGlyph then begin
         result := WinAnsiFont.fUsedWide[
           FindOrAddUsedWideChar(WideChar(fUsedWideChar.Values[i]))].Glyph;
-        exit; // result may be 0 if this glyph doesn't exist in the CMAP content
+        exit;
       end;
-  result := 0; // returns 0 if not found
+  // result may be aGlyph if this glyph doesn't exist in the CMAP content
 end;
 
 constructor TPdfFontTrueType.Create(ADoc: TPdfDocument; AFontIndex: integer;
@@ -8251,7 +8093,7 @@ begin
     FFontDescriptor.AddItem('Flags',Flags);
     with fOTM.otmrcFontBox do
       FFontDescriptor.AddItem('FontBBox',
-        TPdfArray.Create(fDoc.FXref,[Left,Bottom,Right,Top]));
+        TPdfArray.Create(fDoc.FXref, [Left,Bottom,Right,Top]));
     Data.AddItem('FontDescriptor',fFontDescriptor);
   end;
   fAscent := fOTM.otmAscent;
@@ -8272,14 +8114,15 @@ begin
 end;
 
 function TPdfFontTrueType.GetWideCharWidth(aWideChar: WideChar): Integer;
+var ref: TPdfFontTrueType;
 begin
-  self := self.WinAnsiFont; // we need fUsedWide[] to be used glyphs
+  ref := WinAnsiFont; // WinAnsiFont.fUsedWide[] = glyphs used by ShowText
   result := WideCharToWinAnsi(ord(aWideChar));
   if result>=0 then
-    if (fWinAnsiWidth<>nil) and (result>=32) then
-      result := fWinAnsiWidth[AnsiChar(result)] else
-      result := fDefaultWidth else
-      result := fUsedWide[FindOrAddUsedWideChar(aWideChar)].Width;
+    if (ref.fWinAnsiWidth<>nil) and (result>=32) then
+      result := ref.fWinAnsiWidth[AnsiChar(result)] else
+      result := ref.fDefaultWidth else
+      result := ref.fUsedWide[ref.FindOrAddUsedWideChar(aWideChar)].Width;
 end;
 
 { font subset embedding using Windows XP CreateFontPackage() FontSub.dll
@@ -8299,6 +8142,95 @@ end;
 procedure lpfnFree(Buffer: pointer); cdecl;
 begin
   FreeMem(Buffer);
+end;
+
+type
+  TTtfTableDirectory = packed record
+    sfntVersion: cardinal; // 0x00010000 for version 1.0
+    numTables: word;       // number of tables
+    searchRange: word;     // HighBit(NumTables) x 16
+    entrySelector: word;   // Log2(HighBit(NumTables))
+    rangeShift: word;      // NumTables x 16 - SearchRange
+  end;
+  PTtfTableDirectory = ^TTtfTableDirectory;
+  
+  TTtfTableEntry = packed record
+    tag: cardinal;      // table identifier
+    checksum: cardinal; // checksum for this table
+    offset: cardinal;   // offset from start of font file
+    length: cardinal;   // length of this table
+  end;
+  PTtfTableEntry = ^TTtfTableEntry;
+
+const
+  // see http://www.4real.gr/technical-documents-ttf-subset.html and
+  // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6.html
+  TTF_SUBSET: array[0..9] of array[0..3] of AnsiChar = (
+    'head', 'cvt ', 'fpgm', 'prep', 'hhea', 'maxp', 'hmtx', 'cmap', 'loca', 'glyf');
+
+procedure ReduceTTF(out ttf: PDFString; SubSetData: pointer; SubSetSize: integer);
+var dir: PTtfTableDirectory;
+    d, e: PTtfTableEntry;
+    head: ^TCmapHEAD;
+    n, i, len: PtrInt;
+    checksum: cardinal;
+begin
+  SetLength(ttf, SubSetSize); // maximum size
+  d := pointer(ttf);
+  inc(PTtfTableDirectory(d));
+  // identify the tables to be included
+  e := SubSetData;
+  inc(PTtfTableDirectory(e));
+  n := 0;
+  if SubSetSize > SizeOf(dir^) then 
+    for i := 1 to swap(PTtfTableDirectory(SubSetData)^.numTables) do begin
+      if IntegerScan(@TTF_SUBSET, length(TTF_SUBSET), e^.tag) <> nil then begin
+        d^ := e^;
+        inc(d);
+        inc(n);
+      end;
+      inc(e);
+    end;
+  // update the main directory
+  if n < 8 then begin // pdf expects 10, and 8..15 for our fixed dir^ values
+    MoveFast(SubSetData^, pointer(ttf)^, SubSetSize); // paranoid
+    exit;
+  end;
+  dir := pointer(ttf);
+  dir^.sfntVersion := PTtfTableDirectory(SubSetData)^.sfntVersion;
+  dir^.numTables := swap(word(n));
+  //len := HighBit(n); // always 8 when n in 8..15
+  //dir^.searchRange := swap(len * 16);
+  //dir^.entrySelector := swap(Floor(log2(len))); // requires the Math unit
+  //dir^.rangeShift := swap((integer(n) - len) * 16);
+  dir^.searchRange := 32768; // pre-computed values for n in 8..15
+  dir^.entrySelector := 768;
+  dir^.rangeShift := 8192;
+  // include the associated data
+  checksum := 0;
+  head := nil;
+  e := pointer(ttf);
+  inc(PTtfTableDirectory(e));
+  for i := 1 to n do begin
+    len := bswap32(e^.length);
+    MoveFast(PByteArray(SubSetData)[bswap32(e^.offset)], d^, len);
+    e^.offset := bswap32(PtrUInt(d) - PtrUInt(ttf));
+    if e^.tag = HEAD_TABLE then // 'head' table
+      head := pointer(d);
+    while len and 3 <> 0 do begin // 32-bit padding
+      PByteArray(d)[len] := 0;
+      inc(len);
+    end;
+    inc(checksum, bswap32(e^.checksum)); // we didn't change the table itself
+    inc(PByte(d), len);
+    inc(e);
+  end;
+  // finalize the generated content
+  for i := 0 to ((SizeOf(dir^) + (integer(n) * SizeOf(e^))) shr 2) - 1 do
+    inc(checksum, PCardinalArray(ttf)[i]);
+  if head <> nil then
+    head^.checkSumAdjustment := bswap32($B1B0AFBA - checksum);
+  PStrLen(PtrUInt(ttf) - _STRLEN)^ := PtrUInt(d) - PtrUInt(ttf); // no realloc
 end;
 
 var
@@ -8329,7 +8261,6 @@ var c: AnsiChar;
     tableTag: Longword;
     {$ifndef DELPHI5OROLDER}
     ttcNumFonts: Longword;
-    ttcBytes: array of byte;
     {$endif}
 begin
   DS := THeapMemoryStream.Create;
@@ -8341,8 +8272,9 @@ begin
       Descendant := TPdfDictionary.Create(fDoc.FXref);
       Descendant.AddItem('Type','Font');
       Descendant.AddItem('Subtype','CIDFontType2');
-      Descendant.AddItem('BaseFont',FName);
-      if fDoc.PDFA1 then
+      Descendant.AddItem('BaseFont', // name may have been prefixed
+        TPdfName(WinAnsiFont.Data.ValueByName('BaseFont')).Value);
+      if fDoc.PDFA<>pdfaNone then
         Descendant.AddItem('CIDToGIDMap','Identity');
       CIDSystemInfo := TPdfDictionary.Create(FDoc.FXref);
       CIDSystemInfo.AddItem('Supplement',0);
@@ -8355,7 +8287,7 @@ begin
         fLastChar := WinAnsiFont.fUsedWide[n-1].Glyph;
       end;
       Descendant.AddItem('DW',WinAnsiFont.fDefaultWidth);
-      if fDoc.PDFA1 or not WinAnsiFont.fFixedWidth then begin
+      if (fDoc.PDFA<>pdfaNone) or not WinAnsiFont.fFixedWidth then begin
         WR.Add('['); // fixed width will use /DW value
         // WinAnsiFont.fUsedWide[] contains glyphs used by ShowText
         for i := 0 to n-1 do
@@ -8372,10 +8304,10 @@ begin
       Data.AddItem('DescendantFonts',Descendants);
       // create ToUnicode CMaping
       ToUnicode := TPdfStream.Create(fDoc);
-      ToUnicode.Writer.Add('/CIDInit /ProcSet findresource begin'#10+
+      ToUnicode.Writer.Add('/CIDInit/ProcSet findresource begin'#10+
         '12 dict begin'#10'begincmap'#10'/CIDSystemInfo'#10'<<'#10'/Registry (').
         Add(ShortCut).Add('+0)'#10'/Ordering (UCS)'#10'/Supplement 0'#10'>> def'#10+
-        '/CMapName /').Add(ShortCut).Add('+0 def'#10'/CMapType 2 def'#10+
+        '/CMapName/').Add(ShortCut).Add('+0 def'#10'/CMapType 2 def'#10+
         '1 begincodespacerange'#10'<').AddHex4(fFirstChar).Add('> <').
         AddHex4(fLastChar).Add('>'#10'endcodespacerange'#10);
       ndx := 0;
@@ -8423,7 +8355,7 @@ begin
         FData.AddItem('Widths',TPdfRawText.Create(WR.Add(']').ToPDFString));
       end;
       // embedd True Type font into the PDF file (allow subset of used glyph)
-      if fDoc.PDFA1 or (fDoc.EmbeddedTTF and
+      if (fDoc.PDFA<>pdfaNone) or (fDoc.EmbeddedTTF and
          ((fDoc.fEmbeddedTTFIgnore=nil) or (fDoc.fEmbeddedTTFIgnore.
            IndexOf(fDoc.FTrueTypeFonts[fTrueTypeFontsIndex-1])<0))) then begin
         fDoc.GetDCWithFont(self);
@@ -8433,9 +8365,8 @@ begin
         if ttfSize<>GDI_ERROR then begin
           // Yes, the font is in a .ttc collection
           // find out how many fonts are included in the collection
-          SetLength(ttcBytes,4);
-          if GetFontData(fDoc.FDC,TTCF_TABLE,8,pointer(ttcBytes),4) <> GDI_ERROR then
-            ttcNumFonts := ttcBytes[3] else // Higher bytes will be zero
+          if GetFontData(fDoc.FDC,TTCF_TABLE,8,@ttcNumFonts,4) <> GDI_ERROR then
+            ttcNumFonts := bswap32(ttcNumFonts) else 
             ttcNumFonts := 1;
           // we need to find out the index of the font within the ttc collection
           // (this is not easy, so GetTTCIndex uses lookup on known ttc fonts)
@@ -8474,12 +8405,15 @@ begin
                 if CreateFontPackage(pointer(ttf),ttfSize,
                     SubSetData,SubSetMem,SubSetSize,
                     usFlags,ttcIndex,TTFMFP_SUBSET,0,
-                    TTFCFP_MS_PLATFORMID,TTFCFP_UNICODE_CHAR_SET,
+                    TTFCFP_MS_PLATFORMID,TTFCFP_DONT_CARE,
                     pointer(Used.Values),Used.Count,
                     @lpfnAllocate,@lpfnReAllocate,@lpfnFree,nil)=0 then begin
                   // subset was created successfully -> save to PDF file
-                  SetString(ttf,SubSetData,SubSetSize);
+                  ReduceTTF(ttf,SubSetData,SubSetSize);
                   FreeMem(SubSetData);
+                  // see 5.5.3 Font Subsets: begins with a tag followed by a +
+                  TPdfName(Data.ValueByName('BaseFont')).Value :=
+                    TPdfName(fFontDescriptor.ValueByName('FontName')).AppendPrefix;
                 end;
               end;
             end;
@@ -8809,7 +8743,7 @@ begin
   // (from http://www.microsoft.com/typography/OTSPEC/head.htm)
   fUnitsPerEmShr := 0; // fastest integer div for width calculating
   for i := 14 downto 4 do
-    if GetBit(head^.UnitsPerEm,i) then begin
+    if GetBitPtr(@head^.UnitsPerEm,i) then begin
       fUnitsPerEmShr := i;
       break;
     end;
@@ -8991,8 +8925,9 @@ begin
   FCanvas.FContents.FSaveAtTheEnd := true; // as expected in SaveToStream() below
 end;
 
-constructor TPdfDocumentGDI.Create(AUseOutlines: Boolean=false; ACodePage: integer=0;
-  APDFA1: boolean=false {$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption=nil{$endif});
+constructor TPdfDocumentGDI.Create(AUseOutlines: Boolean; ACodePage: integer;
+  {$ifdef USE_PDFALEVEL]}APDFA: TPdfALevel{$else}APDFA1: boolean{$endif}
+  {$ifdef USE_PDFSECURITY}; AEncryption: TPdfEncryption{$endif});
 begin
   inherited;
   fTPdfPageClass := TPdfPageGdi;
@@ -9021,7 +8956,7 @@ begin
     Int64(result) := 0;
 end;
 
-procedure TPdfDocumentGDI.SaveToStream(AStream: TStream; ForceModDate: TDateTime=0);
+procedure TPdfDocumentGDI.SaveToStream(AStream: TStream; ForceModDate: TDateTime);
 var i: integer;
     P: TPdfPageGDI;
 begin
@@ -9083,8 +9018,8 @@ begin
   fVCLCurrentMetaFile.Width  := fVCLCanvasSize.cx;
   fVCLCurrentMetaFile.Height := fVCLCanvasSize.cy;
   if fVCLMetaFileCompressed<>'' then begin
-    tmp := fVCLMetaFileCompressed;
-    CompressSynLZ(tmp,false);
+    SetLength(tmp,SynLZdecompressdestlen(pointer(fVCLMetaFileCompressed)));
+    SynLZdecompress1(Pointer(fVCLMetaFileCompressed),length(fVCLMetaFileCompressed),pointer(tmp));
     Stream := TRawByteStringStream.Create(tmp);
     try
       fVCLCurrentMetaFile.LoadFromStream(Stream);
@@ -9102,6 +9037,7 @@ end;
 
 procedure TPdfPageGDI.FlushVCLCanvas;
 var Stream: TRawByteStringStream;
+    len: integer;
 begin
   if (self=nil) or (fVCLCurrentCanvas=nil) then
     exit;
@@ -9110,8 +9046,10 @@ begin
   Stream := TRawByteStringStream.Create;
   try
     fVCLCurrentMetaFile.SaveToStream(Stream);
-    fVCLMetaFileCompressed := Stream.DataString;
-    CompressSynLZ(fVCLMetaFileCompressed,true);
+    len := Length(Stream.DataString);
+    SetLength(fVCLMetaFileCompressed,SynLZcompressdestlen(len));
+    SetLength(fVCLMetaFileCompressed,
+      SynLZcompress1(pointer(Stream.DataString),len,pointer(fVCLMetaFileCompressed)));
   finally
     Stream.Free;
   end;
@@ -9251,10 +9189,8 @@ function EnumEMFFunc(DC: HDC; var Table: THandleTable; R: PEnhMetaRecord;
 var i: integer;
     InitTransX: XForm;
     polytypes: PByteArray;
-
 begin
   result := true;
-
   with E.DC[E.nDC] do
   case R^.iType of
   EMR_HEADER: begin
@@ -9826,7 +9762,6 @@ begin
   else
     R^.iType := R^.iType; // for debug purpose (breakpoint)
   end;
-
   case R^.iType of
     EMR_RESTOREDC,
     EMR_SETWINDOWEXTEX,
@@ -10192,6 +10127,9 @@ end;
 procedure TPdfEnum.HandleComment(Kind: TPdfGDIComment; P: PAnsiChar; Len: integer);
 var Text: RawUTF8;
     W: integer;
+    Img: TPdfImage;
+    ImgName: PDFString;
+    ImgRect: TPdfRect;
 begin
   try
     case Kind of
@@ -10212,6 +10150,18 @@ begin
           W := 1 else
           W := 0;
         Canvas.Doc.CreateLink(Canvas.RectI(PRect(P)^,true),Text,abSolid,W);
+      end;
+      pgcJpegDirect:
+      if Len>Sizeof(TRect) then begin
+        SetString(Text,P+SizeOf(TRect),Len-SizeOf(TRect));
+        ImgName := 'SynImgJpg'+PDFString(crc32cUTF8ToHex(Text));
+        if Canvas.Doc.GetXObject(ImgName) = nil then
+        begin
+          Img := TPdfImage.CreateJpegDirect(Canvas.Doc,UTF8ToString(Text));
+          Canvas.Doc.RegisterXObject(Img,ImgName);
+        end;
+        ImgRect := Canvas.RectI(PRect(P)^,true);
+        Canvas.DrawXObject(ImgRect.Left,ImgRect.Top,ImgRect.Right-ImgRect.Left,ImgRect.Bottom-ImgRect.Top,ImgName);
       end;
     end;
   except
@@ -10288,7 +10238,6 @@ begin
     if not DC[nDC].pen.null then
       Canvas.Stroke;
   end;
-
   with DC[nDC], Canvas do begin
     FViewSize := ViewSize;
     FViewOrg := ViewOrg;
@@ -10357,7 +10306,6 @@ begin
       MM_ANISOTROPIC:
         ;  // TBD
     end;
-
     if FWinSize.cx=0 then // avoid EZeroDivide
       FFactorX := 1.0 else
       FFactorX := Abs(FViewSize.cx / FWinSize.cx);
@@ -10377,13 +10325,42 @@ begin
           WorldTransform := Custom^;
       end;
     end;
-
     // use transformation
     ScaleXForm := WorldTransform;
-    FWorldFactorX := WorldTransform.eM11;
-    FWorldFactorY := WorldTransform.eM22;
-    FWorldOffsetX := WorldTransform.eDx;
-    FWorldOffsetY := WorldTransform.eDy;
+    if (ScaleXForm.eM11 > 0) and
+       (ScaleXForm.eM22 > 0) and
+       (ScaleXForm.eM12 = 0) and
+       (ScaleXForm.eM21 = 0) then
+    begin // Scale
+      FWorldFactorX := ScaleXForm.eM11;
+      FWorldFactorY := ScaleXForm.eM22;
+      FWorldOffsetX := WorldTransform.eDx;
+      FWorldOffsetY := WorldTransform.eDy;
+    end
+    else
+    if (ScaleXForm.eM22 = ScaleXForm.eM11) and
+       (ScaleXForm.eM21 = -ScaleXForm.eM12) then
+    begin // Rotate
+      FAngle := ArcSin(ScaleXForm.eM12) * c180divPI;
+      FWorldCos := ScaleXForm.eM11;
+      FWorldSin := ScaleXForm.eM12;
+    end
+    else
+    if (ScaleXForm.eM11 = 0) and
+       (ScaleXForm.eM22 = 0) and
+       ((ScaleXForm.eM12 <> 0) or
+       (ScaleXForm.eM21 <> 0)) then
+    begin //Shear
+
+    end
+    else
+    if ((ScaleXForm.eM11 < 0) or
+        (ScaleXForm.eM22 < 0)) and
+       (ScaleXForm.eM12 = 0) and
+       (ScaleXForm.eM21 = 0) then
+    begin //Reflection
+
+    end;
   end;
 end;
 
@@ -10696,7 +10673,7 @@ begin
 {$endif}
     Canvas.BeginText;
     if font.spec.angle<>0 then begin
-      a := font.spec.angle*(PI/180);
+      a := font.spec.angle*cPIdiv180;
       acos := cos(a);
       asin := sin(a);
       PosX := 0;
@@ -10704,7 +10681,25 @@ begin
       Canvas.SetTextMatrix(acos, asin, -asin, acos,
         Canvas.I2X(Posi.X-Round(W*acos+H*asin)),
         Canvas.I2Y(Posi.Y-Round(H*acos-W*asin)));
-    end else begin
+    end else
+    if (WorldTransform.eM11 = WorldTransform.eM22) and
+       (WorldTransform.eM12 = -WorldTransform.eM21) and
+       not SameValue(ArcCos(WorldTransform.eM11), 0, 0.0001) then
+    begin
+      PosX := 0;
+      PosY := 0;
+      if SameValue(ArcCos(WorldTransform.eM11), 0, 0.0001) or       //0deg
+         SameValue(ArcCos(WorldTransform.eM11), cPI, 0.0001) then   //180deg
+        Canvas.SetTextMatrix(WorldTransform.eM11, WorldTransform.eM12, WorldTransform.eM21, WorldTransform.eM22,
+          Canvas.I2X(posi.X * WorldTransform.eM11 + posi.Y * WorldTransform.eM21 + WorldTransform.eDx),
+          Canvas.I2y(posi.X * WorldTransform.eM12 + posi.Y * WorldTransform.eM22 + WorldTransform.eDy))
+      else
+        Canvas.SetTextMatrix(-WorldTransform.eM11, -WorldTransform.eM12, -WorldTransform.eM21, -WorldTransform.eM22,
+          Canvas.I2X(posi.X * WorldTransform.eM11 + posi.Y * WorldTransform.eM21 + WorldTransform.eDx),
+          Canvas.I2y(posi.X * WorldTransform.eM12 + posi.Y * WorldTransform.eM22 + WorldTransform.eDy));
+    end
+    else
+    begin
       acos := 0;
       asin := 0;
       if Canvas.fViewSize.cx>0 then
@@ -10733,14 +10728,6 @@ begin
       end else
         Canvas.ShowText(pointer(tmp));
     Canvas.EndText;
-    case Positioning of
-    tpSetTextJustification:
-      if nspace>0 then
-        Canvas.SetWordSpace(0);
-    tpKerningFromAveragePosition:
-      if hscale<>100 then
-        Canvas.SetHorizontalScaling(100); //reset hor. scaling
-    end;
     // handle underline or strike out styles (direct draw PDF lines on canvas)
     if font.LogFont.lfUnderline<>0 then
       DrawLine(Posi, aSize / 8 / Canvas.GetWorldFactorX / Canvas.FDevScaleX);
@@ -10750,6 +10737,14 @@ begin
     if WithClip then begin
       Canvas.GRestore;
       fFillColor := -1; // force set drawing color
+    end;
+    case Positioning of // reset to be done after Canvas.GRestore
+    tpSetTextJustification:
+      if nspace>0 then
+        Canvas.SetWordSpace(0);
+    tpKerningFromAveragePosition:
+      if hscale<>100 then
+        Canvas.SetHorizontalScaling(100); 
     end;
     if not Canvas.FNewPath then begin
       if WithClip then
@@ -10805,7 +10800,7 @@ begin
     end;
     FAttributes.AddItem('Type','XObject');
     FAttributes.AddItem('Subtype','Form');
-    FAttributes.AddItem('BBox',TPdfArray.Create(nil,[0,0,H,W]));
+    FAttributes.AddItem('BBox',TPdfArray.Create(nil,[0,0,W,H]));
     FAttributes.AddItem('Matrix',TPdfRawText.Create('[1 0 0 1 0 0]'));
     FAttributes.AddItem('Resources',FResources);
   finally
@@ -10871,7 +10866,7 @@ begin
       {$endif}
         SaveToStream(FWriter.fDestStream); // with CompressionQuality recompress
       end;
-    FWriter.fDestStreamPosition := FWriter.fDestStream.Seek(0,soFromCurrent);
+    FWriter.fDestStreamPosition := FWriter.fDestStream.Seek(0,soCurrent);
   end else begin
     if aImage.InheritsFrom(TBitmap) then
       B := TBitmap(aImage) else
@@ -10955,7 +10950,7 @@ begin
     jpeg.Read(b,1);
     case b of
       $C0..$C3: begin
-        jpeg.Seek(3,soFromCurrent);
+        jpeg.Seek(3,soCurrent);
         jpeg.Read(w,2);
         height := swap(w);
         jpeg.Read(w,2);
@@ -10968,12 +10963,12 @@ begin
       $FF:
         jpeg.Read(b,1);
       $D0..$D9, $01: begin
-        jpeg.Seek(1,soFromCurrent);
+        jpeg.Seek(1,soCurrent);
         jpeg.Read(b,1);
       end;
       else begin
         jpeg.Read(w,2);
-        jpeg.Seek(swap(w)-2, soFromCurrent);
+        jpeg.Seek(swap(w)-2, soCurrent);
         jpeg.Read(b,1);
       end;
     end;
@@ -10993,7 +10988,7 @@ begin
   FFilter := 'DCTDecode';
   FWriter.Save; // flush to allow direct access to fDestStream
   FWriter.Add(aJpegFile.Memory,Len);
-  FWriter.fDestStreamPosition := FWriter.fDestStream.Seek(0,soFromCurrent);
+  FWriter.fDestStreamPosition := FWriter.fDestStream.Seek(0,soCurrent);
   FAttributes.AddItem('Width',fPixelWidth);
   FAttributes.AddItem('Height',fPixelHeight);
   case BitDepth of
@@ -11018,13 +11013,13 @@ begin
   FResources.AddItem('ProcSet',TPdfArray.CreateNames(nil,['PDF','Text','ImageC']));
   FPage := TPdfPage.Create(nil);
   FCanvas := TPdfCanvas.Create(aDoc);
-  FCanvas.FPage:=FPage;
+  FCanvas.FPage := FPage;
   FCanvas.FPageFontList := FFontList;
   FCanvas.FContents := self;
   FCanvas.FFactor := 1;
   FAttributes.AddItem('Type','XObject');
   FAttributes.AddItem('Subtype','Form');
-  FAttributes.AddItem('BBox',TPdfArray.Create(nil,[0,0,H,W]));
+  FAttributes.AddItem('BBox',TPdfArray.Create(nil,[0,0,W,H]));
   FAttributes.AddItem('Matrix',TPdfRawText.Create('[1 0 0 1 0 0]'));
   FAttributes.AddItem('Resources',FResources);
 end;
@@ -11184,7 +11179,6 @@ end;
 procedure TPdfEncryptionRC4MD5.EncodeBuffer(const BufIn; var BufOut; Count: cardinal);
 // see http://www.cs.cmu.edu/~dst/Adobe/Gallery/anon21jul01-pdf-encryption.txt
 // see "Algorithm 3.1 Encryption of data" in PDF Reference document
-var RC4: TRC4;
   procedure ComputeNewRC4Key;
   const KEYSIZE:  array[elRC4_40..elRC4_128] of integer = (10,16);
   var MD5: TMD5;
@@ -11195,17 +11189,18 @@ var RC4: TRC4;
     MD5.Update(fDoc.fCurrentObjectNumber,3);
     MD5.Update(fDoc.fCurrentGenerationNumber,2);
     MD5.Final(Digest);
-    RC4.Init(Digest,KEYSIZE[fLevel]);
-    fLastRC4Key := RC4; // a lot of string encodings have the same context
+    fLastRC4Key.Init(Digest,KEYSIZE[fLevel]);
     fLastObjectNumber := fDoc.fCurrentObjectNumber;
     fLastGenerationNumber := fDoc.fCurrentGenerationNumber;
   end;
+var work: TRC4; // Encrypt() changes the RC4 state -> local copy for reuse
 begin
   if (fDoc.fCurrentObjectNumber<>fLastObjectNumber) or
      (fDoc.fCurrentGenerationNumber<>fLastGenerationNumber) then
-    ComputeNewRC4Key else
-    RC4 := fLastRC4Key;
-  RC4.Encrypt(BufIn,BufOut,Count); // RC4 allows in-place encryption :)
+    // a lot of string encodings have the same context
+    ComputeNewRC4Key;
+  work := fLastRC4Key;
+  work.Encrypt(BufIn,BufOut,Count); // RC4 allows in-place encryption :)
 end;
 
 {$endif USE_PDFSECURITY}
@@ -11253,8 +11248,8 @@ end;
 
 initialization
   {$ifdef USE_SYNGDIPLUS}
-  // initialize the Gdi+ library if necessary
-  if Gdip=nil then
+  // initialize Gdi+ if necessary (and possible, i.e. not from a dll)
+  if (Gdip=nil) and not IsLibrary then
     Gdip := TGDIPlus.Create('gdiplus.dll');
   {$endif}
 

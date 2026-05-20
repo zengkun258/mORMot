@@ -6,7 +6,7 @@ unit mORMotVCL;
 {
     This file is part of Synopse mORmot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotVCL;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -57,7 +57,7 @@ unit mORMotVCL;
 
 }
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64 OWNNORMTOUPPER
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
 
 interface
 
@@ -221,7 +221,7 @@ end;
 
 function JSONTableToDataSet(aOwner: TComponent; const aJSON: RawUTF8;
   const Tables: array of TSQLRecordClass
-  {$ifndef UNICODE}; aForceWideString: boolean=false{$endif}): TSynSQLTableDataSet;
+  {$ifndef UNICODE}; aForceWideString: boolean{$endif}): TSynSQLTableDataSet;
 begin
   result := TSynSQLTableDataSet.CreateFromJSON(
     aOwner,aJSON,Tables{$ifndef UNICODE},aForceWideString{$endif});
@@ -248,11 +248,11 @@ constructor TSynSQLTableDataSet.CreateOwnedTable(Owner: TComponent; Table: TSQLT
 begin
   Create(Owner,Table{$ifndef UNICODE},ForceWideString{$endif});
   if Table<>nil then
-    TableShouldBeFreed := true;
+    fTableShouldBeFreed := true;
 end;
 
 constructor TSynSQLTableDataSet.CreateFromJSON(Owner: TComponent; const JSON: RawUTF8
-  {$ifndef UNICODE}; ForceWideString: boolean=false{$endif});
+  {$ifndef UNICODE}; ForceWideString: boolean{$endif});
 var T: TSQLTable;
 begin
   T := TSQLTableJSON.Create('',JSON);
@@ -266,7 +266,7 @@ end;
 
 constructor TSynSQLTableDataSet.CreateFromJSON(Owner: TComponent; const JSON: RawUTF8;
   const ColumnTypes: array of TSQLFieldType
-  {$ifndef UNICODE}; ForceWideString: boolean=false{$endif});
+  {$ifndef UNICODE}; ForceWideString: boolean{$endif});
 var T: TSQLTable;
 begin
   T := TSQLTableJSON.CreateWithColumnTypes(ColumnTypes,'',JSON);
@@ -280,7 +280,7 @@ end;
 
 constructor TSynSQLTableDataSet.CreateFromJSON(Owner: TComponent; const JSON: RawUTF8;
   const Tables: array of TSQLRecordClass
-  {$ifndef UNICODE}; ForceWideString: boolean=false{$endif});
+  {$ifndef UNICODE}; ForceWideString: boolean{$endif});
 var T: TSQLTable;
 begin
   T := TSQLTableJSON.CreateFromTables(Tables,'',JSON);
@@ -327,19 +327,19 @@ begin
   sftBoolean, sftInteger, sftID, sftTID:
     SetInt64(P,fTemp64);
   sftFloat, sftCurrency:
-    PDouble(@fTemp64)^ := GetExtended(P);
+    unaligned(PDouble(@fTemp64)^) := GetExtended(P);
   sftEnumerate, sftSet:
     if info^.ContentTypeInfo=nil then
       SetInt64(P,fTemp64) else
       goto Txt;
   sftDateTime, sftDateTimeMS:
-    PDouble(@fTemp64)^ := Iso8601ToDateTimePUTF8Char(P,0);
+    unaligned(PDouble(@fTemp64)^) := Iso8601ToDateTimePUTF8Char(P,0);
   sftTimeLog, sftModTime, sftCreateTime:
-    PDouble(@fTemp64)^ := TimeLogToDateTime(GetInt64(P));
+    unaligned(PDouble(@fTemp64)^) := TimeLogToDateTime(GetInt64(P));
   sftUnixTime:
-    PDouble(@fTemp64)^ := UnixTimeToDateTime(GetInt64(P));
+    unaligned(PDouble(@fTemp64)^) := UnixTimeToDateTime(GetInt64(P));
   sftUnixMSTime:
-    PDouble(@fTemp64)^ := UnixMSTimeToDateTime(GetInt64(P));
+    unaligned(PDouble(@fTemp64)^) := UnixMSTimeToDateTime(GetInt64(P));
   sftBlob: begin
     fTempBlob := BlobToTSQLRawBlob(P);
     result := pointer(fTempBlob);
@@ -412,7 +412,7 @@ begin
 end;
 
 procedure GetDBFieldDef(aTable: TSQLTable; aField: integer;
-  out DBFieldDef: TDBFieldDef{$ifndef UNICODE}; aForceWideString: boolean=false{$endif});
+  out DBFieldDef: TDBFieldDef{$ifndef UNICODE}; aForceWideString: boolean{$endif});
 begin
   with DBFieldDef do begin
     DBSize := 0;

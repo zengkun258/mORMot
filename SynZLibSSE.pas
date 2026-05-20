@@ -21,7 +21,7 @@ end. // put as reference all deprecated code below
 
     This file is part of Synopse framework.
 
-    Synopse framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -40,7 +40,7 @@ end. // put as reference all deprecated code below
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -58,13 +58,9 @@ end. // put as reference all deprecated code below
   the terms of any one of the MPL, the GPL or the LGPL.
 
   ***** END LICENSE BLOCK *****
-
-  Version 1.18
-  - first public release, corresponding to mORMot Framework 1.18
-
 *)
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64
 
 interface
 
@@ -277,7 +273,7 @@ var strm: TZStream;
   begin
     Count := tmpsize - integer(strm.avail_out);
     if Count=0 then exit;
-    aStream.Write(tmpbuf^,Count);
+    aStream.WriteBuffer(tmpbuf^,Count);
     strm.next_out := tmpbuf;
     strm.avail_out := tmpsize;
   end;
@@ -343,7 +339,7 @@ var strm: TZStream;
     if checkCRC<>nil then
       checkCRC^ := crc32(checkCRC^,tmpbuf,Count);
     if aStream<>nil then
-      aStream.Write(tmpbuf^,Count);
+      aStream.WriteBuffer(tmpbuf^,Count);
     strm.next_out := tmpbuf;
     strm.avail_out := tmpsize;
   end;

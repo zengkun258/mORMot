@@ -2,12 +2,16 @@ unit SyNodePluginIntf;
 
 interface
 
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
+{$I SyNode.inc}   //define WITHASSERT
+
 uses
   SynCommons,
   SpiderMonkey;
 
 type
-  TSMPluginRec = {$ifdef UNICODE}record{$else}object{$endif}
+  {$ifdef USERECORDWITHMETHODS}TSMPluginRec = record
+    {$else}TSMPluginRec = object{$endif}
     cx: PJSContext;
     Exp: PJSRootedObject;
     Req: PJSRootedObject;
@@ -83,7 +87,7 @@ begin
     ptInt: result := val.isInteger;
     ptStr: result := val.isString;
     ptObj: result := val.isObject;
-    ptBuffer: result := val.isObject and val.asObject.IsArrayBufferObject;
+    ptBuffer: result := val.isObject and (val.asObject.IsArrayBufferObject or val.asObject.IsArrayBufferViewObject);
     ptAny: result := True;
     else result := false;
   end;
@@ -126,7 +130,7 @@ begin
     end;
 
     if not IsCalled then
-      raise ESMException.Create('invalid usage');
+      raise ESMException.CreateUTF8('There is no overloaded function "%" with such a list of arguments', [calleeObj.GetFunctionId().ToSynUnicode(cx)]);
 
     Result := True;
   except

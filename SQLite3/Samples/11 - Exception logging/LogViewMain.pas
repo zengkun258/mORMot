@@ -3,6 +3,7 @@ unit LogViewMain;
 
 interface
 
+{$I Synopse.inc}
 
 uses
   {$ifdef MSWINDOWS}
@@ -34,6 +35,9 @@ uses
   {$endif}
   SynCommons,
   SynLog,
+  {$ifndef FPC}
+  SynMemoEx,
+  {$endif}
   mORMotHttpServer;
 
 type
@@ -47,12 +51,12 @@ type
   TMainLogView = class(TForm)
     PanelLeft: TPanel;
     PanelThread: TPanel;
+    PanelBottom: TPanel;
     BtnBrowse: TButton;
     EventsList: TCheckListBox;
     FilterMenu: TPopupMenu;
     EditSearch: TEdit;
     BtnSearchNext: TButton;
-    MemoBottom: TMemo;
     Splitter2: TSplitter;
     Splitter3: TSplitter;
     BtnStats: TButton;
@@ -135,6 +139,7 @@ type
     procedure PanelLeftResize(Sender: TObject);
     procedure btnThreadDownClick(Sender: TObject);
     procedure btnThreadUpClick(Sender: TObject);
+    procedure PanelBottomResize(Sender: TObject);
   protected
     FLog: TSynLogFileView;
     FMainCaption: string;
@@ -153,6 +158,11 @@ type
     procedure ThreadListNameRefresh(Index: integer);
     procedure ReceivedOne(const Text: RawUTF8);
   public
+    {$ifdef FPC}
+    MemoBottom: TMemo; // for LCL compatibility
+    {$else}
+    MemoBottom: TMemoEx;
+    {$endif}
     destructor Destroy; override;
     property LogFileName: TFileName write SetLogFileName;
   end;
@@ -263,7 +273,7 @@ begin
     end;
     ThreadListBox.Items.EndUpdate;
   end;
-  lstDays.Visible := (FLog<>nil) and (FLog.DayChangeIndex<>nil);
+  lstDays.Visible := (FLog<>nil) and (FLog.DayChangeIndex<>nil) and (FLog.DayCount<>nil);
   if lstDays.Visible then begin
     FLog.GetDays(FDays);
     lstDays.Top := y;
@@ -329,6 +339,20 @@ begin
   ProfileList.ColWidths[0] := 60;
   ProfileList.ColWidths[1] := 1000;
   ProfileList.Hide;
+  {$ifdef FPC}
+  MemoBottom := TMemo.Create(self);
+  {$else}
+  MemoBottom := TMemoEx.Create(self);
+  {$endif}
+  MemoBottom.Parent := PanelBottom;
+  MemoBottom.Align := alClient;
+  MemoBottom.Font.Height := -11;
+  if Screen.Fonts.IndexOf('Consolas') >= 0 then
+    MemoBottom.Font.Name := 'Consolas' else
+    MemoBottom.Font.Name := 'Courier New';
+  MemoBottom.ReadOnly := true;
+  MemoBottom.ScrollBars := ssVertical;
+  MemoBottom.Text := '';
 end;
 
 procedure TMainLogView.FormShow(Sender: TObject);
@@ -609,6 +633,8 @@ begin
     end;
     s := format(sTimeInfo,[Selection.Bottom-Selection.Top+1,s]);
   end;
+  if Pos(#9, s) > 0 then
+    s := StringReplace(s, #9, ' ', [rfReplaceAll]);
   MemoBottom.Text := s;
 end;
 
@@ -743,12 +769,14 @@ begin
     if FLog.EventLevel<>nil then
       Index := FLog.Selected[Index];
     s := FLog.EventString(Index,'',0,true);
+    if Pos(#9, s) > 0 then
+      s := StringReplace(s, #9, ' ', [rfReplaceAll]);
     MemoBottom.Text := s;
     if search<>'' then begin
       ss := UTF8ToString(search);
       i := Pos(ss,SysUtils.UpperCase(s));
       if i>0 then begin
-        MemoBottom.SelStart := i-1;
+        MemoBottom.SelStart := i;
         MemoBottom.SelLength := length(ss);
       end;
     end;
@@ -1056,5 +1084,15 @@ begin
   lstDays.Height := PanelLeft.ClientHeight-lstDays.Top-48;
 end;
 
+
+procedure TMainLogView.PanelBottomResize(Sender: TObject);
+var w: integer;
+begin
+  {$ifndef FPC}
+  w := MemoBottom.CellRect.Width;
+  if w > 0 then
+    MemoBottom.RightMargin := (PanelBottom.ClientWidth div w) - 7;
+  {$endif}
+end;
 
 end.

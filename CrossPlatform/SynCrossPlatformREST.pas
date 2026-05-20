@@ -6,7 +6,7 @@ unit SynCrossPlatformREST;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynCrossPlatformREST;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -47,9 +47,7 @@ unit SynCrossPlatformREST;
   ***** END LICENSE BLOCK *****
 
 
-  Version 1.18
-  - first public release, corresponding to mORMot Framework 1.18
-  - would compile with Delphi for any platform (including NextGen for mobiles),
+  Should compile with Delphi for any platform (including NextGen for mobiles),
     with FPC 2.7 or Kylix, and with SmartMobileStudio 2.1.1
 
 }
@@ -106,6 +104,20 @@ type
 
   {$ifdef ISDWS}
 
+  // UTILS functions 
+  function window: variant; external 'window' property;
+  function document: variant; external 'document' property;
+
+  // URI functions
+  function EncodeURIComponent(str: String): String; external 'encodeURIComponent';
+  function DecodeURIComponent(str: String): String; external 'decodeURIComponent';
+  function EncodeURI(str: String): String; external 'encodeURI';
+  function DecodeURI(str: String): String; external 'decodeURI';
+
+  // Variant management 
+  function VarIsValidRef(const aRef: Variant): Boolean;
+
+type					   
   // circumvent limited DWS / SMS syntax
   TPersistent = TObject;
   TObjectList = array of TObject;
@@ -241,8 +253,8 @@ type
   /// a set of published property Kind
   TSQLFieldKinds = set of TSQLFieldKind;
 
-  { TODO: TID should be a string since number is limited to 53-bit in JavaScript
-    -> define and use an explicit Int52 type for SMS }
+  { Should TID be a string since number is limited to 53-bit in JavaScript?
+    -> or define and use an explicit Int52 type for SMS? }
   /// the TSQLRecord primary key is a 64 bit integer
   TID = {$ifndef ISDWS}type{$endif} Int64;
 
@@ -801,7 +813,7 @@ type
     // specify a CSV list of field values to be transmitted - including blobs,
     // which will be sent as base-64 encoded JSON
     function Add(Value: TSQLRecord; SendData: boolean; ForceID: boolean=false;
-      const FieldNames: string=''): TID; virtual;
+      FieldNames: string=''): TID; virtual;
     /// delete a member
     function Delete(Table: TSQLRecordClass; ID: TID): boolean; virtual; abstract;
     /// update a member
@@ -1320,6 +1332,14 @@ var
 
 implementation
 
+{$ifdef ISDWS}
+function VarIsValidRef(const aRef: Variant): Boolean;
+begin
+  asm
+    @Result = !((@aRef == null) || (@aRef == undefined));
+  end;
+end;
+{$endif}
 function IsRowID(const PropName: string): boolean;
 begin
   result := IdemPropName(PropName,'ID') or
@@ -1392,7 +1412,7 @@ begin
   Y := (Value shr (6+6+5+5+4)) and 4095;
   {$endif}
   if (Y=0) or not TryEncodeDate(Y,1+(Value shr (6+6+5+5)) and 15,
-       1+(Value shr (6+6+5)) and 31,result) then
+       1+(Value shr (6+6+5)) and 31{$ifdef ISSMS},DateTimeZone.UTC{$endif},result) then
     result := 0;
   if (Value and (1 shl (6+6+5)-1)<>0) and
      TryEncodeTime((Value shr (6+6)) and 31,
@@ -2296,7 +2316,7 @@ end;
 {$endif}
 
 function TSQLRest.Add(Value: TSQLRecord; SendData, ForceID: boolean;
-  const FieldNames: string): TID;
+  FieldNames: string): TID;
 var tableIndex: Integer;
     json: string;
 begin
@@ -2875,7 +2895,7 @@ begin
 end;
 
 /// marshall {result:...,id:...} and {result:...} body answers
-function CallGetResult(const aCall: TSQLRestURIParams; var outID: integer): variant;
+function CallGetResult(const aCall: TSQLRestURIParams; var outID: TID): variant;
 {$ifndef ISSMS}
 var doc: TJSONVariantData;
     jsonres: string;
@@ -2902,7 +2922,7 @@ end;
 function TSQLRestClientURI.CallBackGetResult(const aMethodName: string;
   const aNameValueParameters: array of const; aTable: TSQLRecordClass; aID: TID): string;
 var Call: TSQLRestURIParams;
-    dummyID: integer;
+    dummyID: TID;
 begin
   CallBackGet(aMethodName,aNameValueParameters,Call,aTable,aID);
   result := CallGetResult(Call,dummyID);
@@ -3018,7 +3038,7 @@ begin
             onError(self);
         exit;
       end;
-      var outID: integer;
+      var outID: TID;
       var result := CallGetResult(Call,outID); // from {result:...,id:...}
       if VarIsValidRef(result) then begin
          if (aCaller.fInstanceImplementation=sicClientDriven) and (outID<>0) then
@@ -3047,7 +3067,7 @@ function TSQLRestClientURI.CallRemoteServiceSynch(aCaller: TServiceClientAbstrac
   const aInputParams: array of variant; aReturnsCustomAnswer: boolean): TVariantDynArray;
 var Call: TSQLRestURIParams;
     outResult: variant;
-    outID: integer;
+    outID: TID;
 procedure RaiseError;
 begin
   raise EServiceException.CreateFmt('Error calling %s.%s - returned status %d',
@@ -3099,7 +3119,8 @@ var Call: TSQLRestURIParams;
     result: variant;
     bodyerror: string;
     arr: PJSONVariantData;
-    i,outID: integer;
+    i: integer;
+    outID: TID;
 begin
   params.Init;
   for i := 0 to high(aInputParams) do
@@ -3318,7 +3339,7 @@ var base64: RawUTF8;
 begin
   base64 := aUsername+':'+aPasswordClear;
   {$ifdef ISSMS}
-  base64 := w3_base64encode(base64);
+  base64 := window.btoa(base64);
   {$else}
   base64 := BytesToBase64JSONString(TByteDynArray(TextToHttpBody(base64)),false);
   {$endif}
@@ -3651,7 +3672,7 @@ end;
 
 constructor TServiceClientAbstract.Create(aClient: TSQLRestClientURI);
 var Call: TSQLRestURIParams; // manual synchronous call
-    dummyID: integer;
+    dummyID: TID;
     result: variant;
     contract: string;
 begin

@@ -11,7 +11,9 @@ program MVCServer;
   {$endif}
 {$endif}
 
-{$APPTYPE CONSOLE}
+{$ifdef MSWINDOWS}
+  {$APPTYPE CONSOLE}
+{$endif MSWINDOWS}
 
 {$I Synopse.inc} // define HASINLINE WITHLOG ONLYUSEHTTPSOCKET
 
@@ -20,6 +22,7 @@ uses
   SysUtils,
   SynCrtSock,
   SynCommons,
+  SynTable,
   SynLog,
   mORMot,
   SynSQLite3,
@@ -27,25 +30,33 @@ uses
   mORMotSQLite3,
   mORMotHttpServer,
   mORMotMVC,
-  MVCModel,
-  MVCViewModel;
+  MVCModel in 'MVCModel.pas',
+  MVCViewModel in 'MVCViewModel.pas';
 
 var aModel: TSQLModel;
     aServer: TSQLRestServerDB;
     aApplication: TBlogApplication;
     aHTTPServer: TSQLHttpServer;
 begin
-  //with TSQLLog.Family do Level := LOG_VERBOSE;
+  with TSQLLog.Family do begin
+    Level := LOG_VERBOSE;
+    PerThreadLog := ptIdentifiedInOnFile;
+    RotateFileCount := 10;
+    RotateFileSizeKB := 20 shl 10;
+    FileExistsAction := acAppend; // as expected by rotation
+  end;
   aModel := CreateModel;
   try
     aServer := TSQLRestServerDB.Create(aModel,ChangeFileExt(ExeVersion.ProgramFileName,'.db'));
     try
       aServer.DB.Synchronous := smNormal;
       aServer.DB.LockingMode := lmExclusive;
+      aServer.Options := aServer.Options+[rsoNoTableURI];
       aServer.CreateMissingTables;
       aApplication := TBlogApplication.Create;
       try
         aApplication.Start(aServer);
+        aServer.ServiceMethodRegisterPublishedMethods('', aApplication);
         aHTTPServer := TSQLHttpServer.Create('8092',aServer
           {$ifndef ONLYUSEHTTPSOCKET},'+',useHttpApiRegisteringURI{$endif});
         try

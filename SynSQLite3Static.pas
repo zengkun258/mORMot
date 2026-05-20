@@ -1,4 +1,4 @@
-/// SQLite3 3.23.0 Database engine - statically linked for Windows/Linux 32 bit
+/// SQLite3 3.51.2 Database engine - statically linked for Windows/Linux
 // - this unit is a part of the freeware Synopse mORMot framework,
 // licensed under a MPL/GPL/LGPL tri-license; version 1.18
 unit SynSQLite3Static;
@@ -6,7 +6,7 @@ unit SynSQLite3Static;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit SynSQLite3Static;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -47,9 +47,8 @@ unit SynSQLite3Static;
   ***** END LICENSE BLOCK *****
 
 
-
-    Statically linked SQLite3 3.23.0 engine
-   *****************************************
+    Statically linked SQLite3 3.51.2 engine with optional AES encryption
+   **********************************************************************
 
   To be declared in your project uses clause:  will fill SynSQlite3.sqlite3
   global variable with all statically linked .obj API entries.
@@ -60,36 +59,10 @@ unit SynSQLite3Static;
   corresponding .o) under other platforms, this unit will just do nothing
   (but compile).
 
-  To compile our patched SQlite3.c version, available in this source folder:
-  - Run c.bat to compile the sqlite3*.obj for Win32/Delphi
-  - Run c-fpcmingw.bat to compile sqlite3.o for Win32/FPC
-  - Run c-fpcmingw64.bat to compile sqlite3.o and sqlite3-64.dll for Win64 (Delphi/FPC)
-  - Run c-fpcgcclin.sh to compile sqlite3.o for Linux32/FPC
+  To patch and compile the official SQlite3 amalgamation file, follow the
+  instruction from SQLite3\amalgamation\ReadMe.md
 
   Uses TSQLite3LibraryDynamic to access external library (e.g. sqlite3.dll/.so)
-
-  To retrieve and install the latest sqlite3 debian package on Ubuntu:
-  - retrieve latest .deb from https://launchpad.net/ubuntu/...
-  - for a 32 bit system, install e.g. as
-    sudo dpkg -i libsqlite3-0_3.8.7.4-1_i386.deb
-  - for a 64 bit system, you need to download and install both packages, e.g.
-    sudo dpkg -i libsqlite3-0_3.8.2-1ubuntu2_amd64.deb libsqlite3-0_3.8.2-1ubuntu2_i386.deb
-
-  Version 1.18
-  - initial revision, extracted from SynSQLite3.pas unit
-  - updated SQLite3 engine to latest version 3.23.0
-  - now all sqlite3_*() API calls are accessible via sqlite3.*()
-  - our custom file encryption is now called via sqlite3.key() - i.e. official
-    SQLite Encryption Extension (SEE) sqlite3_key() API - and works for database
-    files of any size without touching the main sqlite.c amalgamation file
-  - Memory-Mapped I/O support - see http://www.sqlite.org/mmap.html
-  - under Win64, expects an external sqlite3-64.dll file to be available, which
-    may be downloaded from https://synopse.info/files/SQLite3-64.7z
-  - added sqlite3.backup_*() Online Backup API functions
-  - added missing function sqlite3_column_text16() - fixed ticket [25d8d1f47a]
-  - added sqlite3.db_config() support
-  - enabled FTS5 and RBU support
-  - added FPC cross-platform support, statically linked for Win32/Win64
 
 }
 
@@ -182,7 +155,7 @@ type
 // cyphered format, which was much less safe (simple XOR on fixed tables), and
 // was not working on any database size, making unclean patches to the official
 // sqlite3.c amalgamation file, so is deprecated and unsupported any longer -
-// see OldSQLEncryptTablePassWordToPlain() to convert your existing databases 
+// see OldSQLEncryptTablePassWordToPlain() to convert your existing databases
 function ChangeSQLEncryptTablePassWord(const FileName: TFileName;
   const OldPassWord, NewPassword: RawUTF8): boolean;
 
@@ -197,64 +170,120 @@ procedure OldSQLEncryptTablePassWordToPlain(const FileName: TFileName;
 // and switch to the new format
 function IsOldSQLEncryptTable(const FileName: TFileName): boolean;
 
+var
+  /// global flag to use initial AES encryption scheme
+  // - IV derivation was hardened in revision 1.18.4607 - set TRUE to this
+  // global constant to use the former implementation (theoritically slightly
+  // less resistant to brute force attacks) and convert existing databases
+  ForceSQLite3LegacyAES: boolean;
+
 
 implementation
 
-{$ifdef FPC}  // FPC expects .o linking, and only one version including FTS3
+{$ifdef FPC}  // FPC expects .o linking, and only one version including FTS
 
   {$ifdef MSWINDOWS}
     {$ifdef CPU64}
-      {$L static\x86_64-win64\sqlite3.o}
-      {$linklib static\x86_64-win64\libkernel32.a}
-      {$linklib static\x86_64-win64\libgcc.a}
-      {$linklib static\x86_64-win64\libmsvcrt.a}
       const _PREFIX = '';
+      {$L .\static\x86_64-win64\sqlite3.o}
+      {$linklib .\static\x86_64-win64\libkernel32.a}
+      {$linklib .\static\x86_64-win64\libgcc.a}
+      {$linklib .\static\x86_64-win64\libmsvcrt.a}
     {$else}
-      {$L static\i386-win32\sqlite3.o}
-      {$linklib static\i386-win32\libkernel32.a}
-      {$linklib static\i386-win32\libgcc.a}
-      {$linklib static\i386-win32\libmsvcrt.a}
       const _PREFIX = '_';
+      {$L .\static\i386-win32\sqlite3.o}
+      {$linklib .\static\i386-win32\libkernel32.a}
+      {$linklib .\static\i386-win32\libgcc.a}
+      {$linklib .\static\i386-win32\libmsvcrt.a}
     {$endif CPU64}
-  {$else}
-    {$ifdef Darwin}
-      {$ifdef CPU64}
-        {$linklib .\..\static\x86_64-darwin\libsqlite3.a}
-      {$else}
-        {$linklib .\..\static\i386-darwin\libsqlite3.a}
-      {$endif}
-      const _PREFIX = '';
-    {$else Darwin}
-      {$ifndef FPC_CROSSCOMPILING}
-        {$linklib gcc.a}
-      {$endif}
-      {$ifdef CPUARM}
-        {$L static\arm-linux\sqlite3.o}
-        {$ifdef FPC_CROSSCOMPILING}
-          {$linklib static\arm-linux\gcc.a}
-          {$L libgcc_s.so.1}
-        {$else}
-          {$linklib gcc_s.so.1}
-        {$endif}
-        const _PREFIX = '';
-      {$endif}
-      {$ifdef CPUINTEL}
-        {$ifdef CPU64}
-          {$L static/x86_64-linux\sqlite3.o}
-          {$ifdef FPC_CROSSCOMPILING}
-            {$linklib static/x86_64-linux\gcc.a}
-          {$endif}
-          const _PREFIX = '';
-        {$else}
-          {$L static/i386-linux\sqlite3.o}
-          {$ifdef FPC_CROSSCOMPILING}
-            {$linklib static/i386-linux\gcc.a}
-          {$endif}
-          const _PREFIX = '';
-        {$endif CPU64}
-      {$endif CPUINTEL}
-    {$endif Darwin}
   {$endif MSWINDOWS}
+
+  {$ifdef Darwin}
+    const _PREFIX = '_';
+    {$ifdef CPU64}
+      {$linklib .\static\x86_64-darwin\libsqlite3.a}
+    {$else}
+      {$linklib .\static\i386-darwin\libsqlite3.a}
+    {$endif}
+  {$endif Darwin}
+
+  {$ifdef ANDROID}
+    const _PREFIX = '';
+    {$ifdef CPUAARCH64}
+      {$L .\static\aarch64-android\sqlite3.o}
+      {$linklib .\static\aarch64-android\libgcc.a}
+    {$endif CPUAARCH64}
+    {$ifdef CPUARM}
+      {$L .\static\arm-android\sqlite3.o}
+      {$linklib .\static\arm-android\libgcc.a}
+    {$endif CPUARM}
+    {$ifdef CPUX86}
+      {$L .\static\i386-android\sqlite3.o}
+    {$endif CPUX86}
+    {$ifdef CPUX64}
+      {$L .\static\x86_64-android\sqlite3.o}
+      // x86_64-linux-android-ld.bfd: final link failed
+      // (Nonrepresentable section on output)
+    {$endif CPUX64}
+  {$endif ANDROID}
+
+  {$ifdef FREEBSD}
+    {$ifdef CPUX86}
+    const _PREFIX = '';
+    {$L .\static\i386-freebsd\sqlite3.o}
+    {$ifdef FPC_CROSSCOMPILING}
+      {$linklib .\static\i386-freebsd\libgcc.a}
+    {$endif}
+    {$endif CPUX86}
+    {$ifdef CPUX64}
+    const _PREFIX = '';
+    {$L .\static\x86_64-freebsd\sqlite3.o}
+    {$ifdef FPC_CROSSCOMPILING}
+      {$linklib .\static\x86_64-freebsd\libgcc.a}
+    {$endif}
+    {$endif CPUX64}
+  {$endif FREEBSD}
+
+  {$ifdef OPENBSD}
+    {$ifdef CPUX86}
+      const _PREFIX = '';
+      {$L .\static\i386-openbsd\sqlite3.o}
+      {$ifdef FPC_CROSSCOMPILING}
+        {$linklib .\static\i386-openbsd\libgcc.a}
+      {$endif}
+    {$endif CPUX86}
+    {$ifdef CPUX64}
+      const _PREFIX = '';
+      {$L .\static\x86_64-openbsd\sqlite3.o}
+      {$ifdef FPC_CROSSCOMPILING}
+        {$linklib .\static\x86_64-openbsd\libgcc.a}
+      {$endif}
+    {$endif CPUX64}
+  {$endif OPENBSD}
+
+  {$if defined(Linux) and not defined(BSD) and not defined(Android)}
+    const _PREFIX = '';
+    {$ifdef CPUAARCH64}
+      {$L .\static\aarch64-linux\sqlite3.o}
+      {$L .\static\aarch64-linux\libgcc.a}
+    {$endif CPUAARCH64}
+    {$ifdef CPUARM}
+      {$L .\static\arm-linux\sqlite3.o}
+      {$L .\static\arm-linux\libgcc.a}
+    {$endif CPUARM}
+    {$ifdef CPUX86}
+      {$L .\static\i386-linux\sqlite3.o}
+      {$ifdef FPC_CROSSCOMPILING}
+        {$linklib .\static\i386-linux\libgcc.a}
+      {$endif}
+    {$endif CPUX86}
+    {$ifdef CPUX64}
+      {$L .\static\x86_64-linux\sqlite3.o}
+      {$ifdef FPC_CROSSCOMPILING}
+        {$linklib .\static\x86_64-linux\libgcc.a}
+      {$endif}
+    {$endif CPUX64}
+  {$ifend}
 
 function log(x: double): double; cdecl; public name _PREFIX+'log'; export;
 begin
@@ -264,45 +293,62 @@ end;
 {$ifdef MSWINDOWS}
 {$ifdef CPUX86} // not a compiler intrinsic on x86
 function _InterlockedCompareExchange(var Dest: longint; New,Comp: longint): longint; stdcall;
-  [public, alias: '_InterlockedCompareExchange@12'];
+  public alias: '_InterlockedCompareExchange@12';
 begin
   result := InterlockedCompareExchange(Dest,New,Comp);
 end;
 {$endif CPUX86}
 {$endif MSWINDOWS}
 
-{$ifdef Darwin}
+{$ifdef DARWIN}
 
-function moddi3(num,den:int64):int64; cdecl; [public, alias: '___moddi3'];
+function moddi3(num, den: int64): int64; cdecl; public alias: '___moddi3';
 begin
- result := num mod den;
+  result := num mod den;
 end;
-function umoddi3(num,den:uint64):uint64; cdecl; [public, alias: '___umoddi3'];
+function umoddi3(num, den: uint64): uint64; cdecl; public alias: '___umoddi3';
 begin
- result := num mod den;
+  result := num mod den;
 end;
-function divdi3(num,den:int64):int64; cdecl; [public, alias: '___divdi3'];
+function divdi3(num, den: int64): int64; cdecl; public alias: '___divdi3';
 begin
- result := num div den;
+  result := num div den;
 end;
-function udivdi3(num,den:uint64):uint64; cdecl; [public, alias: '___udivdi3'];
+function udivdi3(num, den: uint64): uint64; cdecl; public alias: '___udivdi3';
 begin
- result := num div den;
+  result := num div den;
 end;
 
+{$endif DARWIN}
+
+{$ifdef ANDROID}
+{$ifdef CPUARM}
+function bswapsi2(num:uint32):uint32; cdecl; public alias: '__bswapsi2';
+asm
+  rev r0, r0	// reverse bytes in parameter and put into result register
+  bx  lr
+end;
+function bswapdi2(num:uint64):uint64; cdecl; public alias: '__bswapdi2';
+asm
+  rev r2, r0  // r2 = rev(r0)
+  rev r0, r1  // r0 = rev(r1)
+  mov r1, r2  // r1 = r2 = rev(r0)
+  bx  lr
+end;
 {$endif}
+{$endif ANDROID}
 
 {$else FPC}
 
-  // Delphi has a more complex linking strategy, since $linklib doesn't exist :(
+  // Delphi has a diverse linking strategy, since $linklib doesn't exist :(
   {$ifdef MSWINDOWS}
     {$ifdef CPU64}
-      {$L static\x86_64-win64\sqlite3.o} // compiled with gcc for FPC ...
+      {$L sqlite3.o}  // compiled with C++ Builder 10.3 Community Edition bcc64
     {$else}
-      {$L sqlite3.obj}       // link SQlite3 database engine
+      {$L sqlite3.obj}  // compiled with free Borland C++ Compiler 5.5
     {$endif}
   {$else}
-  {$ifdef KYLIX3} // in practice, failed to compile SQLite3 with gcc 2 :(
+  {$ifdef KYLIX3} // in practice, we failed to compile SQLite3 with gcc 2 :(
     {$L kylix/sqlite3/sqlite3.o}
     {$L kylix/sqlite3/_divdi3.o}
     {$L kylix/sqlite3/_moddi3.o}
@@ -312,7 +358,7 @@ end;
   {$endif KYLIX3}
   {$endif MSWINDOWS}
 
-// those functions will be called only under Delphi + Win32
+// those functions will be called only under Delphi + Win32/Win64
 
 function malloc(size: cardinal): Pointer; cdecl; { always cdecl }
 begin
@@ -339,7 +385,7 @@ begin
 end;
 
 {$ifdef MSWINDOWS}
-{$ifdef CPU32}
+{$ifdef CPU32} // Delphi Win32 will link static Borland C++ sqlite3.obj
 
 // we then implement all needed Borland C++ runtime functions in pure pascal:
 
@@ -416,15 +462,44 @@ asm
   jmp System.@_llushr
 end;
 
-function log(const val: extended): extended;
+function log(const val: double): double; cdecl; { always cdecl }
 asm
-  fld val
+  fld qword ptr val
   fldln2
   fxch
   fyl2x
-  fwait
 end;
 
+function fabs(x: double): double; cdecl; // needed since 3.44.2
+begin
+  result := abs(x);
+end;
+
+function strchr(p: PAnsiChar; chr: AnsiChar): PAnsiChar; cdecl;
+begin // needed since 3.46.1
+  result := nil;
+  if p <> nil then
+    while p^ <> chr do
+      if p^ = #0 then
+        exit // not found
+      else
+        inc(p);
+  result := p;
+end;
+
+function memchr(p: pointer; chr: byte; n: PtrInt): PAnsiChar; cdecl;
+var
+  i: PtrInt;
+begin // needed since 3.46.1
+  result := p;
+  if p = nil then
+    exit;
+  i := ByteScanIndex(p, n, chr);
+  if i >= 0 then
+    inc(result, i)
+  else
+    result := nil; // not found
+end;
 {$endif CPU32}
 {$endif MSWINDOWS}
 
@@ -471,6 +546,24 @@ begin // called e.g. during LIKE process
   result := SynCommons.strcspn(str,reject); // use SSE4.2 if available
 end;
 
+function strspn(str,reject: PAnsiChar): integer; cdecl;
+  {$ifdef FPC}public name{$ifdef CPU64}'strcspn'{$else}'_strcspn'{$endif};{$endif}
+begin // appeared with SQlite 3.44.2
+  result := SynCommons.strspn(str,reject);
+end;
+
+function strrchr(s: PAnsiChar; c: AnsiChar): PAnsiChar; cdecl;
+  {$ifdef FPC}public name{$ifdef CPU64}'strrchr'{$else}'_strrchr'{$endif};{$endif}
+begin // simple full pascal version of the standard C library function
+  result := nil;
+  if s<>nil then
+    while s^<>#0 do begin
+      if s^=c then
+        result := s;
+      inc(s);
+    end;
+end;
+
 function memcmp(p1, p2: pByte; Size: integer): integer; cdecl; { always cdecl }
 {$ifdef FPC}
   public name{$ifdef CPU64}'memcmp'{$else}'_memcmp'{$endif};
@@ -478,20 +571,21 @@ begin
   result := CompareByte(p1,p2,Size); // use FPC
 end;
 {$else}
-// a fast full pascal version of the standard C library function
-begin
+begin // full pascal version of the standard C library function
   if (p1<>p2) and (Size<>0) then
     if p1<>nil then
       if p2<>nil then begin
         repeat
-          if p1^<>p2^ then begin
-            result := p1^-p2^;
-            exit;
+          if p1^=p2^ then begin
+            inc(p1);
+            inc(p2);
+            dec(Size);
+            if Size<>0 then
+              continue else break;
           end;
-          dec(Size);
-          inc(p1);
-          inc(p2);
-        until Size=0;
+          result := p1^-p2^;
+          exit;
+        until false;
         result := 0;
       end else
       result := 1 else
@@ -502,9 +596,8 @@ end;
 
 function strncmp(p1, p2: PByte; Size: integer): integer; cdecl; { always cdecl }
   {$ifdef FPC}public name{$ifdef CPU64}'strncmp'{$else}'_strncmp'{$endif};{$endif}
-// a fast full pascal version of the standard C library function
 var i: integer;
-begin
+begin // a fast full pascal version of the standard C library function
   for i := 1 to Size do begin
     result := p1^-p2^;
     if (result<>0) or (p1^=0) then
@@ -520,7 +613,7 @@ type
   // this function type is defined for calling termDataCmp() in sqlite3.c
   qsort_compare_func = function(P1,P2: pointer): integer; cdecl; { always cdecl }
 
-procedure QuickSort4(base: PPointerArray; L, R: Integer; comparF: qsort_compare_func);
+procedure QuickSortPtr(base: PPointerArray; L, R: Integer; comparF: qsort_compare_func);
 var I, J, P: Integer;
     PP, C: PAnsiChar;
 begin
@@ -544,7 +637,7 @@ begin
       end;
     until I>J;
     if L<J then
-      QuickSort4(base, L, J, comparF);
+      QuickSortPtr(base, L, J, comparF);
     L := I;
   until I>=R;
 end;
@@ -599,7 +692,7 @@ procedure qsort(baseP: pointer; NElem, Width: integer; comparF: pointer); cdecl;
 begin
   if (cardinal(NElem)>1) and (Width>0) then
     if Width=sizeof(pointer) then
-      QuickSort4(baseP, 0, NElem-1, qsort_compare_func(comparF)) else
+      QuickSortPtr(baseP, 0, NElem-1, qsort_compare_func(comparF)) else
       QuickSort(baseP, Width, 0, NElem-1, qsort_compare_func(comparF));
 end;
 
@@ -673,27 +766,17 @@ procedure _endthreadex(exitcode: dword); cdecl; external msvcrt;
 
 {$ifdef CPU64}
 
-// first try for static on Win64 with Delphi
-function __imp__beginthreadex(security: pointer; stksize: dword;
-  start,arg: pointer; flags: dword; var threadid: dword): THandle; cdecl; external msvcrt name '_beginthreadex';
-procedure __imp__endthreadex(exitcode: dword); cdecl; external msvcrt name '_endthreadex';
+// Delphi Win64 will link its own static sqlite3.o (diverse from FPC's)
 
-function __imp_TryEnterCriticalSection(lpCriticalSection:pointer): BOOL; cdecl; external kernel name 'TryEnterCriticalSection';
-procedure __imp_LeaveCriticalSection(lpCriticalSection:pointer); cdecl; external kernel name 'LeaveCriticalSection';
-procedure __imp_EnterCriticalSection(lpCriticalSection:pointer); cdecl; external kernel name 'EnterCriticalSection';
-procedure __imp_DeleteCriticalSection(lpCriticalSection:pointer); cdecl; external kernel name 'DeleteCriticalSection';
-procedure __imp_InitializeCriticalSection(lpCriticalSection:pointer); cdecl; external kernel name 'InitializeCriticalSection';
-function __imp_GetCurrentThreadId:dword; cdecl; external kernel name 'GetCurrentThreadId';
-function __imp_CloseHandle(hObject:THandle): BOOL; cdecl; external kernel name 'CloseHandle';
-function __imp__localtime64(t: PCardinal): pointer; cdecl;
-begin
-  result := localtime64(t^);
-end;
-function log(x: double): double; cdecl; export;
+function _log(x: double): double; export; // to link LLVM bcc64 compiler
 begin
   result := ln(x);
 end;
-// try ends here
+
+function log(x: double): double; export; // to link old non-LLVM bcc64 compiler
+begin
+  result := ln(x);
+end;
 
 procedure __chkstk;
 begin
@@ -706,7 +789,8 @@ asm
 end;
 
 var
-  _fltused: byte; // not used, but needed for linking
+  _finf: double = 1.0 / 0.0; // compiles to some double infinity constant
+  _fltused: Int64 = 0; // to link old non-LLVM bcc64 compiler
 
 {$endif CPU64}
 
@@ -734,42 +818,46 @@ end;
 
 {$endif FPC}
 
-// some external functions as expected by codecext.c and our sqlite3.c wrapper
+// some external functions as expected by codecext.c and our sqlite3mc.c wrapper
 
 procedure CodecGenerateKey(var aes: TAES; userPassword: pointer; passwordLength: integer);
 var s: TSynSigner;
     k: THash512Rec;
 begin
   s.PBKDF2(userPassword,passwordLength,k,'J6CuDftfPr22FnYn');
-  s.AssignTo(k,aes,true);
+  s.AssignTo(k,aes,{encrypt=}true);
 end;
 
 function CodecGetReadKey(codec: pointer): PAES; cdecl; external;
 function CodecGetWriteKey(codec: pointer): PAES; cdecl; external;
 
-procedure CodecGenerateReadKey(codec: pointer; userPassword: PAnsiChar; passwordLength: integer); cdecl;
+procedure CodecGenerateReadKey(codec: pointer;
+  userPassword: PAnsiChar; passwordLength: integer); cdecl;
   {$ifdef FPC}public name _PREFIX+'CodecGenerateReadKey';{$endif} export;
 begin
   CodecGenerateKey(CodecGetReadKey(codec)^,userPassword,passwordLength);
 end;
 
-procedure CodecGenerateWriteKey(codec: pointer; userPassword: PAnsiChar; passwordLength: integer); cdecl;
+procedure CodecGenerateWriteKey(codec: pointer;
+  userPassword: PAnsiChar; passwordLength: integer); cdecl;
   {$ifdef FPC}public name _PREFIX+'CodecGenerateWriteKey';{$endif} export;
 begin
   CodecGenerateKey(CodecGetWriteKey(codec)^,userPassword,passwordLength);
 end;
 
-procedure CodeEncryptDecrypt(page: cardinal; data: PAnsiChar; len: integer;
+procedure CodecAESProcess(page: cardinal; data: PAnsiChar; len: integer;
   aes: PAES; encrypt: boolean);
 var plain: Int64;    // bytes 16..23 should always be unencrypted
-    iv: THash128Rec; // should be genuine, not necessary random / secured
+    iv: THash128Rec; // is genuine and AES-protected (since not random)
 begin
   if (len and AESBlockMod<>0) or (len<=0) or (integer(page)<=0) then
-   raise ESQLite3Exception.CreateUTF8('CodeEncryptDecrypt(%) has len=%', [page,len]);
-  iv.c0 := page xor 668265263;
+    raise ESQLite3Exception.CreateUTF8('CodecAESProcess(page=%,len=%)', [page,len]);
+  iv.c0 := page xor 668265263; // prime-based initialization
   iv.c1 := page*2654435761;
   iv.c2 := page*2246822519;
   iv.c3 := page*3266489917;
+  if not ForceSQLite3LegacyAES then
+    aes^.Encrypt(iv.b); // avoid potential brute force attack
   len := len shr AESBlockShift;
   if page=1 then // ensure header bytes 16..23 are stored unencrypted
     if (PInt64(data)^=SQLITE_FILE_HEADER128.lo) and
@@ -784,31 +872,36 @@ begin
         aes^.DoBlocksOFB(iv.b,data+16,data+16,len-1);
         if (data[21]=#64) and (data[22]=#32) and (data[23]=#32) then
           PHash128(data)^ := SQLITE_FILE_HEADER128.b else
-          FillZero(PHash128(data)^); // report incorrect password 
+          FillZero(PHash128(data)^); // report incorrect password
       end else
-      FillZero(PHash128(data)^) else 
+      FillZero(PHash128(data)^) else
     aes^.DoBlocksOFB(iv.b,data,data,len);
 end;
 
-procedure CodecEncrypt(codec: pointer; page: integer; data: PAnsiChar; len, useWriteKey: integer); cdecl;
+function CodecEncrypt(codec: pointer; page: integer; data: PAnsiChar;
+  len, useWriteKey: integer): integer; cdecl;
   {$ifdef FPC}public name _PREFIX+'CodecEncrypt';{$endif} export;
 begin
   if useWriteKey=1 then
-     CodeEncryptDecrypt(page,data,len,CodecGetWriteKey(codec),true) else
-     CodeEncryptDecrypt(page,data,len,CodecGetReadKey(codec),true);
+     CodecAESProcess(page,data,len,CodecGetWriteKey(codec),true) else
+     CodecAESProcess(page,data,len,CodecGetReadKey(codec),true);
+  result := SQLITE_OK;
 end;
 
-procedure CodecDecrypt(codec: pointer; page: integer; data: PAnsiChar; len: integer); cdecl;
+function CodecDecrypt(codec: pointer; page: integer;
+data: PAnsiChar; len: integer): integer; cdecl;
   {$ifdef FPC}public name _PREFIX+'CodecDecrypt';{$endif} export;
 begin
-  CodeEncryptDecrypt(page,data,len,CodecGetReadKey(codec),false);  
+  CodecAESProcess(page,data,len,CodecGetReadKey(codec),false);
+  result := SQLITE_OK;
 end;
 
-procedure CodecTerm(codec: pointer); cdecl;
+function CodecTerm(codec: pointer): integer; cdecl;
   {$ifdef FPC}public name _PREFIX+'CodecTerm';{$endif} export;
 begin
   CodecGetReadKey(codec)^.Done;
   CodecGetWriteKey(codec)^.Done;
+  result := SQLITE_OK;
 end;
 
 function ChangeSQLEncryptTablePassWord(const FileName: TFileName;
@@ -816,7 +909,7 @@ function ChangeSQLEncryptTablePassWord(const FileName: TFileName;
 var F: THandle;
     bufsize,page,pagesize,pagecount,n,p,read: cardinal;
     head: THash256Rec;
-    buf: PAnsiChar; 
+    buf: PAnsiChar;
     temp: RawByteString;
     size: TQWordRec;
     posi: Int64;
@@ -860,12 +953,12 @@ begin
         exit; // stop on any read error
       for p := 0 to n-1 do begin
         if OldPassword<>'' then begin
-          CodeEncryptDecrypt(page+p,buf,pagesize,@old,false);
+          CodecAESProcess(page+p,buf,pagesize,@old,false);
           if (p=0) and (page=1) and (PInteger(buf)^=0) then
             exit; // OldPassword is obviously incorrect
         end;
         if NewPassword<>'' then
-          CodeEncryptDecrypt(page+p,buf,pagesize,@new,true);
+          CodecAESProcess(page+p,buf,pagesize,@new,true);
         inc(buf,pagesize);
       end;
       FileSeek64(F,posi,soFromBeginning);
@@ -978,12 +1071,13 @@ function sqlite3_key(DB: TSQLite3DB; key: pointer; keyLen: Integer): integer; cd
 function sqlite3_rekey(DB: TSQLite3DB; key: pointer; keyLen: Integer): integer; cdecl; external;
 function sqlite3_create_function(DB: TSQLite3DB; FunctionName: PUTF8Char;
   nArg, eTextRep: integer; pApp: pointer; xFunc, xStep: TSQLFunctionFunc;
-  xFinal: TSQLFunctionFinal): Integer;
-  cdecl; external;
+  xFinal: TSQLFunctionFinal): Integer; cdecl; external;
 function sqlite3_create_function_v2(DB: TSQLite3DB; FunctionName: PUTF8Char;
   nArg, eTextRep: integer; pApp: pointer; xFunc, xStep: TSQLFunctionFunc;
-  xFinal: TSQLFunctionFinal; xDestroy: TSQLDestroyPtr): Integer;
-  cdecl; external;
+  xFinal: TSQLFunctionFinal; xDestroy: TSQLDestroyPtr): Integer; cdecl; external;
+function sqlite3_create_window_function(DB: TSQLite3DB; FunctionName: PUTF8Char;
+  nArg, eTextRep: integer; pApp: pointer; xStep: TSQLFunctionFunc;
+  xFinal, xValue: TSQLFunctionFinal; xInverse: TSQLFunctionFunc; xDestroy: TSQLDestroyPtr): Integer;   cdecl; external;
 function sqlite3_create_collation(DB: TSQLite3DB; CollationName: PUTF8Char;
   StringEncoding: integer; CollateParam: pointer; cmp: TSQLCollateFunc): integer; cdecl; external;
 function sqlite3_libversion: PUTF8Char; cdecl; external;
@@ -1091,106 +1185,108 @@ function sqlite3_trace_v2(DB: TSQLite3DB; Mask: integer; Callback: TSQLTraceCall
 { TSQLite3LibraryStatic }
 
 const
-  // error message if linked sqlite3.obj does not match this
-  EXPECTED_SQLITE3_VERSION = '3.23.0';
+  // error message if statically linked sqlite3.o(bj) does not match this
+  // - Android may be a little behind, so we don't check exact version
+  EXPECTED_SQLITE3_VERSION = {$ifdef ANDROID}''{$else}'3.51.2'{$endif};
 
 constructor TSQLite3LibraryStatic.Create;
 var error: RawUTF8;
 begin
-  initialize           := @sqlite3_initialize;
-  shutdown             := @sqlite3_shutdown;
-  open                 := @sqlite3_open;
-  open_v2              := @sqlite3_open_v2;
-  key                  := @sqlite3_key;
-  rekey                := @sqlite3_rekey;
-  close                := @sqlite3_close;
-  libversion           := @sqlite3_libversion;
-  errmsg               := @sqlite3_errmsg;
-  extended_errcode     := @sqlite3_extended_errcode;
-  create_function      := @sqlite3_create_function;
-  create_function_v2   := @sqlite3_create_function_v2;
-  create_collation     := @sqlite3_create_collation;
-  last_insert_rowid    := @sqlite3_last_insert_rowid;
-  busy_timeout         := @sqlite3_busy_timeout;
-  busy_handler         := @sqlite3_busy_handler;
-  prepare_v2           := @sqlite3_prepare_v2;
-  finalize             := @sqlite3_finalize;
-  next_stmt            := @sqlite3_next_stmt;
-  reset                := @sqlite3_reset;
-  stmt_readonly        := @sqlite3_stmt_readonly;
-  step                 := @sqlite3_step;
-  column_count         := @sqlite3_column_count;
-  column_type          := @sqlite3_column_type;
-  column_decltype      := @sqlite3_column_decltype;
-  column_name          := @sqlite3_column_name;
-  column_bytes         := @sqlite3_column_bytes;
-  column_value         := @sqlite3_column_value;
-  column_double        := @sqlite3_column_double;
-  column_int           := @sqlite3_column_int;
-  column_int64         := @sqlite3_column_int64;
-  column_text          := @sqlite3_column_text;
-  column_text16        := @sqlite3_column_text16;
-  column_blob          := @sqlite3_column_blob;
-  value_type           := @sqlite3_value_type;
-  value_numeric_type   := @sqlite3_value_numeric_type;
-  value_bytes          := @sqlite3_value_bytes;
-  value_double         := @sqlite3_value_double;
-  value_int64          := @sqlite3_value_int64;
-  value_text           := @sqlite3_value_text;
-  value_blob           := @sqlite3_value_blob;
-  result_null          := @sqlite3_result_null;
-  result_int64         := @sqlite3_result_int64;
-  result_double        := @sqlite3_result_double;
-  result_blob          := @sqlite3_result_blob;
-  result_text          := @sqlite3_result_text;
-  result_value         := @sqlite3_result_value;
-  result_error         := @sqlite3_result_error;
-  user_data            := @sqlite3_user_data;
-  context_db_handle    := @sqlite3_context_db_handle;
-  aggregate_context    := @sqlite3_aggregate_context;
-  bind_text            := @sqlite3_bind_text;
-  bind_blob            := @sqlite3_bind_blob;
-  bind_zeroblob        := @sqlite3_bind_zeroblob;
-  bind_double          := @sqlite3_bind_double;
-  bind_int             := @sqlite3_bind_int;
-  bind_int64           := @sqlite3_bind_int64;
-  bind_null            := @sqlite3_bind_null;
-  clear_bindings       := @sqlite3_clear_bindings;
-  bind_parameter_count := @sqlite3_bind_parameter_count;
-  blob_open            := @sqlite3_blob_open;
-  blob_reopen          := @sqlite3_blob_reopen;
-  blob_close           := @sqlite3_blob_close;
-  blob_read            := @sqlite3_blob_read;
-  blob_write           := @sqlite3_blob_write;
-  blob_bytes           := @sqlite3_blob_bytes;
-  create_module_v2     := @sqlite3_create_module_v2;
-  declare_vtab         := @sqlite3_declare_vtab;
-  set_authorizer       := @sqlite3_set_authorizer;
-  update_hook          := @sqlite3_update_hook;
-  commit_hook          := @sqlite3_commit_hook;
-  rollback_hook        := @sqlite3_rollback_hook;
-  changes              := @sqlite3_changes;
-  total_changes        := @sqlite3_total_changes;
-  malloc               := @sqlite3_malloc;
-  realloc              := @sqlite3_realloc;
-  free_                := @sqlite3_free;
-  memory_used          := @sqlite3_memory_used;
-  memory_highwater     := @sqlite3_memory_highwater;
-  trace_v2             := @sqlite3_trace_v2;
-  limit                := @sqlite3_limit;
-  backup_init          := @sqlite3_backup_init;
-  backup_step          := @sqlite3_backup_step;
-  backup_finish        := @sqlite3_backup_finish;
-  backup_remaining     := @sqlite3_backup_remaining;
-  backup_pagecount     := @sqlite3_backup_pagecount;
-  serialize            := @sqlite3_serialize;
-  deserialize          := @sqlite3_deserialize;
-  {$ifndef DELPHI5OROLDER}
-  config               := @sqlite3_config;
-  db_config            := @sqlite3_db_config;
+  initialize             := @sqlite3_initialize;
+  shutdown               := @sqlite3_shutdown;
+  open                   := @sqlite3_open;
+  open_v2                := @sqlite3_open_v2;
+  key                    := @sqlite3_key;
+  rekey                  := @sqlite3_rekey;
+  close                  := @sqlite3_close;
+  libversion             := @sqlite3_libversion;
+  errmsg                 := @sqlite3_errmsg;
+  extended_errcode       := @sqlite3_extended_errcode;
+  create_function        := @sqlite3_create_function;
+  create_function_v2     := @sqlite3_create_function_v2;
+  create_window_function := @sqlite3_create_window_function;
+  create_collation       := @sqlite3_create_collation;
+  last_insert_rowid      := @sqlite3_last_insert_rowid;
+  busy_timeout           := @sqlite3_busy_timeout;
+  busy_handler           := @sqlite3_busy_handler;
+  prepare_v2             := @sqlite3_prepare_v2;
+  finalize               := @sqlite3_finalize;
+  next_stmt              := @sqlite3_next_stmt;
+  reset                  := @sqlite3_reset;
+  stmt_readonly          := @sqlite3_stmt_readonly;
+  step                   := @sqlite3_step;
+  column_count           := @sqlite3_column_count;
+  column_type            := @sqlite3_column_type;
+  column_decltype        := @sqlite3_column_decltype;
+  column_name            := @sqlite3_column_name;
+  column_bytes           := @sqlite3_column_bytes;
+  column_value           := @sqlite3_column_value;
+  column_double          := @sqlite3_column_double;
+  column_int             := @sqlite3_column_int;
+  column_int64           := @sqlite3_column_int64;
+  column_text            := @sqlite3_column_text;
+  column_text16          := @sqlite3_column_text16;
+  column_blob            := @sqlite3_column_blob;
+  value_type             := @sqlite3_value_type;
+  value_numeric_type     := @sqlite3_value_numeric_type;
+  value_bytes            := @sqlite3_value_bytes;
+  value_double           := @sqlite3_value_double;
+  value_int64            := @sqlite3_value_int64;
+  value_text             := @sqlite3_value_text;
+  value_blob             := @sqlite3_value_blob;
+  result_null            := @sqlite3_result_null;
+  result_int64           := @sqlite3_result_int64;
+  result_double          := @sqlite3_result_double;
+  result_blob            := @sqlite3_result_blob;
+  result_text            := @sqlite3_result_text;
+  result_value           := @sqlite3_result_value;
+  result_error           := @sqlite3_result_error;
+  user_data              := @sqlite3_user_data;
+  context_db_handle      := @sqlite3_context_db_handle;
+  aggregate_context      := @sqlite3_aggregate_context;
+  bind_text              := @sqlite3_bind_text;
+  bind_blob              := @sqlite3_bind_blob;
+  bind_zeroblob          := @sqlite3_bind_zeroblob;
+  bind_double            := @sqlite3_bind_double;
+  bind_int               := @sqlite3_bind_int;
+  bind_int64             := @sqlite3_bind_int64;
+  bind_null              := @sqlite3_bind_null;
+  clear_bindings         := @sqlite3_clear_bindings;
+  bind_parameter_count   := @sqlite3_bind_parameter_count;
+  blob_open              := @sqlite3_blob_open;
+  blob_reopen            := @sqlite3_blob_reopen;
+  blob_close             := @sqlite3_blob_close;
+  blob_read              := @sqlite3_blob_read;
+  blob_write             := @sqlite3_blob_write;
+  blob_bytes             := @sqlite3_blob_bytes;
+  create_module_v2       := @sqlite3_create_module_v2;
+  declare_vtab           := @sqlite3_declare_vtab;
+  set_authorizer         := @sqlite3_set_authorizer;
+  update_hook            := @sqlite3_update_hook;
+  commit_hook            := @sqlite3_commit_hook;
+  rollback_hook          := @sqlite3_rollback_hook;
+  changes                := @sqlite3_changes;
+  total_changes          := @sqlite3_total_changes;
+  malloc                 := @sqlite3_malloc;
+  realloc                := @sqlite3_realloc;
+  free_                  := @sqlite3_free;
+  memory_used            := @sqlite3_memory_used;
+  memory_highwater       := @sqlite3_memory_highwater;
+  trace_v2               := @sqlite3_trace_v2;
+  limit                  := @sqlite3_limit;
+  backup_init            := @sqlite3_backup_init;
+  backup_step            := @sqlite3_backup_step;
+  backup_finish          := @sqlite3_backup_finish;
+  backup_remaining       := @sqlite3_backup_remaining;
+  backup_pagecount       := @sqlite3_backup_pagecount;
+  serialize              := @sqlite3_serialize;
+  deserialize            := @sqlite3_deserialize;
+  {$ifndef DELPHI5OROLDER} // varargs calls
+  config                 := @sqlite3_config;
+  db_config              := @sqlite3_db_config;
   {$endif}
 
-  // sqlite3.obj is compiled with SQLITE_OMIT_AUTOINIT defined
+  // our static SQLite3 is compiled with SQLITE_OMIT_AUTOINIT defined
   {$ifdef FPC}
   ForceToUseSharedMemoryManager; // before sqlite3_initialize otherwise SQLITE_MISUSE
   {$else}
@@ -1204,20 +1300,21 @@ begin
   inherited Create; // set fVersionNumber/fVersionText
   if (EXPECTED_SQLITE3_VERSION='') or (fVersionText=EXPECTED_SQLITE3_VERSION) then
     exit;
-  FormatUTF8('Static sqlite3.obj as included within % is outdated!'#13+
-    'Linked version is % whereas the current/expected is '+EXPECTED_SQLITE3_VERSION+'.'#13#13+
-    'Please download latest SQLite3 '+EXPECTED_SQLITE3_VERSION+' revision'#13+
-    {$ifdef FPC}
-    'from https://synopse.info/files/sqlite3fpc.7z',
-    {$else}
-    'from https://synopse.info/files/sqlite3obj.7z',
-    {$endif}
+  // you should never see it if you cloned https://github.com/synopse/mORMot
+  FormatUTF8('Static SQLite3 library as included within % is outdated!'#13#10+
+    'Linked version is % whereas the current/expected is '+EXPECTED_SQLITE3_VERSION+'.'#13#10#13#10+
+    'Please download supported latest SQLite3 '+EXPECTED_SQLITE3_VERSION+' revision'#13#10+
+    'from https://synopse.info/files/sqlite3'+{$ifdef FPC}'fpc'{$else}'obj'{$endif}+'.7z',
     [ExeVersion.ProgramName,fVersionText],error);
   LogToTextFile(error); // annoyning enough on all platforms
   // SynSQLite3Log.Add.Log() would do nothing: we are in .exe initialization
-  {$ifdef MSWINDOWS} // PITA popup
-  MessageBoxA(0,pointer(error),' WARNING: deprecated SQLite3 engine',MB_OK or MB_ICONWARNING);
-  {$endif}
+  {$ifdef MSWINDOWS} 
+  AllocConsole; // PITA popup - better than a MessageBox() especially for services
+  {$endif MSWINDOWS}
+  {$I-}
+  writeln(error);
+  ioresult;
+  {$I+}
 end;
 
 destructor TSQLite3LibraryStatic.Destroy;

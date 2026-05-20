@@ -271,7 +271,8 @@ type
   TTestHugeContent = class(TTestBigContentRead)
   protected
     procedure GeoJSONCoordWriter(const aWriter: TTextWriter; const aValue);
-    function GeoJSONCoordReader(P: PUTF8Char; var aValue; out aValid: Boolean): PUTF8Char;
+    function GeoJSONCoordReader(P: PUTF8Char; var aValue; out aValid: Boolean;
+      CustomVariantOptions: PDocVariantOptions): PUTF8Char;
   published
     procedure DownloadFilesIfNecessary; override;
     procedure SynopseBeautifier;
@@ -365,27 +366,27 @@ end;
 
 const
   SAMPLE_JSON_1 = // from http://json.org/example.html
-    '{' + #13#10 + 
-    '"glossary": {' + #13#10 + 
-        '"title": "example glossary",' + #13#10 + 
-        '		"GlossDiv": {' + #13#10 + 
-            '"title": "S",' + #13#10 +
-            '			"GlossList": {' + #13#10 +
-                '"GlossEntry": {' + #13#10 + 
-                    '"ID": "SGML",' + #13#10 + 
-                    '					"SortAs": "SGML",' + #13#10 +
-                    '					"GlossTerm": "Standard Generalized Markup Language",' + #13#10 +
-                    '					"Acronym": "SGML",' + #13#10 +
-                    '					"Abbrev": "ISO 8879:1986",' + #13#10 +
-                    '					"GlossDef": {' + #13#10 +
-                        '"para": "A meta-markup language, used to create markup languages such as DocBook.",' + #13#10 +
-                        '						"GlossSeeAlso": ["GML", "XML"]' + #13#10 +
-                    '},' + #13#10 +
-                    '					"GlossSee": "markup"' + #13#10 +
-                '}' + #13#10 +
-            '}' + #13#10 +
-        '}' + #13#10 +
-    '}' + #13#10 +
+    '{'#13#10 + 
+    '"glossary": {'#13#10 + 
+        '"title": "example glossary",'#13#10 + 
+        '		"GlossDiv": {'#13#10 + 
+            '"title": "S",'#13#10 +
+            '			"GlossList": {'#13#10 +
+                '"GlossEntry": {'#13#10 + 
+                    '"ID": "SGML",'#13#10 + 
+                    '					"SortAs": "SGML",'#13#10 +
+                    '					"GlossTerm": "Standard Generalized Markup Language",'#13#10 +
+                    '					"Acronym": "SGML",'#13#10 +
+                    '					"Abbrev": "ISO 8879:1986",'#13#10 +
+                    '					"GlossDef": {'#13#10 +
+                        '"para": "A meta-markup language, used to create markup languages such as DocBook.",'#13#10 +
+                        '						"GlossSeeAlso": ["GML", "XML"]'#13#10 +
+                    '},'#13#10 +
+                    '					"GlossSee": "markup"'#13#10 +
+                '}'#13#10 +
+            '}'#13#10 +
+        '}'#13#10 +
+    '}'#13#10 +
     '}';
 
 {$ifdef USEENHANCEDRTTIFORRECORDS}
@@ -1084,7 +1085,7 @@ const
     'geometry{type TGeoJSONObjectType coordinates array of TGeoJSONCoords}]';
 
 function TTestHugeContent.GeoJSONCoordReader(P: PUTF8Char; var aValue;
-  out aValid: Boolean): PUTF8Char;
+  out aValid: Boolean; CustomVariantOptions: PDocVariantOptions): PUTF8Char;
 var V: TGeoJSONCoords absolute aValue;
     i1,i2,n: integer;
 begin // '[ [ -122.420540559229593, 37.805963600244901, 0.0 ], ... ]'
@@ -1184,7 +1185,7 @@ begin
   {$endif}
   json := StringFromFile(fFileName);
   Owner.TestTimer.Start;
-  RecordLoadJSON(data,pointer(JSON),TypeInfo(TCity));
+  RecordLoadJSON(data,pointer(json),TypeInfo(TCity));
   json := '';
   {$ifdef USEENHANCEDRTTIFORRECORDS}
   check(data.&type=FeatureCollection);
@@ -1209,7 +1210,7 @@ var json: RawUTF8;
 begin
   json := StringFromFile(fFileName);
   Owner.TestTimer.Start;
-  start := PosEx('[',json);
+  start := PosExChar('[',json);
   if CheckFailed(start>0) then
     exit;
   Check(JSONBufferToBSONArray(@json[start],docs,true));

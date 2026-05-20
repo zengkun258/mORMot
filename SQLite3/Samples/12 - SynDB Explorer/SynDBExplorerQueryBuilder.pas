@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, CheckLst, Controls, StdCtrls, Classes, Types,
   Graphics, Forms, Clipbrd,
-  SynDB, SynCommons, Menus;
+  SynDB, SynCommons, SynTable, Menus;
 
 type
   TDBQueryTable = object
@@ -311,8 +311,11 @@ end;
 
 procedure TDBQueryObject.InitJOIN(Size: integer);
 begin
-  SetLength(JOIN,Size);
-  fillchar(JOIN[0],Size*sizeof(JOIN[0]),255); // fill all to -1
+  if Size > 0 then
+  begin
+    SetLength(JOIN,Size);
+    fillchar(JOIN[0],Size*sizeof(JOIN[0]),255); // fill all to -1
+  end;
 end;
 
 

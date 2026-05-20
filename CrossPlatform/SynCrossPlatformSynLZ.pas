@@ -8,7 +8,7 @@ interface
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -27,7 +27,7 @@ interface
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -47,10 +47,8 @@ interface
   ***** END LICENSE BLOCK *****
 
 
-  Version 1.18
-  - first public release, corresponding to mORMot Framework 1.18
-  - compatible with the main SynLZ.pas unit
-  - would compile with Delphi for any platform (including NextGen for mobiles),
+  Compatible with the main SynLZ.pas unit
+  Should compile with Delphi for any platform (including NextGen for mobiles),
     with FPC 2.7 or Kylix - but not yet with SmartMobileStudio 2.1.1
 
 }
@@ -88,10 +86,10 @@ type
 {$ifdef FPC}
   PBytes = PAnsiChar;
 {$else}
-  PtrUInt = {$ifdef CPUX64} NativeUInt {$else} cardinal {$endif};
+  PtrUInt = {$ifdef UNICODE} NativeUInt {$else} cardinal {$endif};
   TBytes = array[0..maxInt-1] of byte;
   PBytes = ^TBytes;
-{$endif}
+{$endif FPC}
 
 function SynLZcomp(src: pointer; size: cardinal; dst: pointer): cardinal;
 var dst_beg,          // initial dst value
@@ -124,7 +122,7 @@ begin
   CWbit := 1;
   CWpoint := pointer(dst);
   PCardinal(dst)^ := 0;
-  inc(PtrUInt(dst),sizeof(CWpoint^));
+  inc(PByte(dst),sizeof(CWpoint^));
   fillchar(offset,sizeof(offset),0); // fast 16KB reset to 0
   // 1. main loop to search using hash[]
   if PtrUInt(src)<=src_endmatch then
@@ -145,7 +143,7 @@ begin
         tmax := (255+16);
       while (PBytes(o)[t]=PBytes(src)[t]) and (t<tmax) do
         inc(t);
-      inc(PtrUInt(src),t);
+      inc(PByte(src),t);
       h := h shl 4;
       // here we have always t>0
       if t<=15 then begin // mark 2 to 17 bytes -> size=1..15
@@ -155,7 +153,7 @@ begin
         dec(t,16);
         PWord(dst)^ := h; // size=0
         PByte(PtrUInt(dst)+2)^ := t;
-        inc(PtrUInt(dst),3);
+        inc(PByte(dst),3);
       end;
     end else begin
       PByte(dst)^ := PByte(src)^;
@@ -192,7 +190,7 @@ function SynLZdecomp(src: pointer; size: cardinal; dst: pointer): cardinal;
 var last_hashed, // initial src and dst value
     src_end: PtrUInt;
     CW, CWbit: cardinal;
-    v, t, h, o: cardinal;
+    v, t, h, o: PtrUInt;
     i: integer;
     offset: array[0..4095] of PtrUInt; // 16KB hashing code
 label nextCW;
@@ -250,7 +248,7 @@ nextCW:
         v := PCardinal(last_hashed)^;
         offset[((v shr 12) xor v) and 4095] := last_hashed;
       end;
-      inc(PtrUInt(dst),t);
+      inc(PByte(dst),t);
       last_hashed := PtrUInt(dst)-1;
       CWbit := CWbit shl 1;
       if CWbit<>0 then

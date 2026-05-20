@@ -6,7 +6,7 @@ unit mORMotDDD;
 {
     This file is part of Synopse mORMot framework.
 
-    Synopse mORMot framework. Copyright (C) 2018 Arnaud Bouchez
+    Synopse mORMot framework. Copyright (c) Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
   *** BEGIN LICENSE BLOCK *****
@@ -25,7 +25,7 @@ unit mORMotDDD;
 
   The Initial Developer of the Original Code is Arnaud Bouchez.
 
-  Portions created by the Initial Developer are Copyright (C) 2018
+  Portions created by the Initial Developer are Copyright (c)
   the Initial Developer. All Rights Reserved.
 
   Contributor(s):
@@ -45,19 +45,20 @@ unit mORMotDDD;
 
   ***** END LICENSE BLOCK *****
 
-  Version 1.18
-  - first public release, corresponding to Synopse mORMot Framework 1.18
-
 }
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64 OWNNORMTOUPPER
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
 
 interface
 
 uses
 {$ifdef MSWINDOWS}
   Windows,
-{$endif}
+{$else}
+  {$ifdef FPC}
+  SynFPCLinux,
+  {$endif FPC}
+{$endif MSWINDOWS}
   SysUtils,
   Classes,
   Contnrs,
@@ -493,6 +494,7 @@ type
     procedure TablePropToAggregate(
       aRecord: TSQLRecord; aRecordProp: TSQLPropInfo;
       aAggregate: TObject; aAggregateProp: TSQLPropInfo); virtual;
+    function GetAggregateRTTIOptions: TSQLPropInfoListOptions; virtual;
     // main IoC/DI method, returning a TDDDRepositoryRest instance
     function CreateInstance: TInterfacedObject; override;
   public
@@ -680,10 +682,10 @@ type
     // - if aAggregate is nil, fCurrentORMInstance field values would be used
     // - if aAggregate is set, its fields would be set to fCurrentORMInstance
     procedure ORMPrepareForCommit(aCommand: TSQLOccasion;
-      aAggregate: TObject; var Result: TCQRSResult); virtual;
+      aAggregate: TObject; var Result: TCQRSResult; aAllFields: boolean=false); virtual;
     /// minimal implementation using AggregateToTable() conversion
-    function ORMAdd(aAggregate: TObject): TCQRSResult; virtual;
-    function ORMUpdate(aAggregate: TObject): TCQRSResult; virtual;
+    function ORMAdd(aAggregate: TObject; aAllFields: boolean=false): TCQRSResult; virtual;
+    function ORMUpdate(aAggregate: TObject; aAllFields: boolean=false): TCQRSResult; virtual;
     /// this default implementation will send the internal BATCH
     // - you should override it, if you need a specific behavior
     procedure InternalCommit(var Result: TCQRSResult); virtual;
@@ -937,7 +939,7 @@ type
     /// IAdministratedDaemon command to finalize the associated process
     // - and returns updated statistics as a TDocVariant
     function Stop(out Information: variant): TCQRSResult; virtual;
-    /// IAdministratedDaemon command to  Stop the associated process, then
+    /// IAdministratedDaemon command to Stop the associated process, then
     // quit the executable
     // - returning the same output information than Stop()
     function Halt(out Information: variant): TCQRSResult; virtual;
@@ -1289,11 +1291,10 @@ begin
   if (aAggregate=nil) or (fRest=nil) or (fTable=nil) then
     raise EDDDRepository.CreateUTF8(self,'Invalid %.Create(nil)',[self]);
   fAggregate.Init(aAggregate);
-  fPropsMapping.Init(aTable,RawUTF8(aAggregate.ClassName),aRest,false);
+  fPropsMapping.Init(aTable,RawUTF8(aAggregate.ClassName),aRest,false,[]);
   fPropsMapping.MapFields(['ID','####']); // no ID/RowID for our aggregates
   fPropsMapping.MapFields(TableAggregatePairs);
-  fAggregateRTTI := TSQLPropInfoList.Create(aAggregate,
-    [pilAllowIDFields,pilSubClassesFlattening,pilIgnoreIfGetter]);
+  fAggregateRTTI := TSQLPropInfoList.Create(aAggregate, GetAggregateRTTIOptions);
   SetLength(fAggregateToTable,fAggregateRTTI.Count);
   SetLength(fAggregateProp,fAggregateRTTI.Count);
   ComputeMapping;
@@ -1309,6 +1310,11 @@ constructor TDDDRepositoryRestFactory.Create(const aInterface: TGUID;
   aOwner: TDDDRepositoryRestManager);
 begin
   Create(aInterface,aImplementation,aAggregate,aRest,aTable,[],aOwner);
+end;
+
+function TDDDRepositoryRestFactory.GetAggregateRTTIOptions: TSQLPropInfoListOptions;
+begin
+  Result := [pilAllowIDFields,pilSubClassesFlattening,pilIgnoreIfGetter];
 end;
 
 destructor TDDDRepositoryRestFactory.Destroy;
@@ -1760,7 +1766,7 @@ function TDDDRepositoryRestManager.GetFactoryIndex(
   const aInterface: TGUID): integer;
 begin
   for result := 0 to length(fFactory)-1 do
-    if IsEqualGUID(fFactory[result].fInterface.InterfaceIID,aInterface) then
+    if IsEqualGUID(@fFactory[result].fInterface.InterfaceIID,@aInterface) then
       exit;
   result := -1;
 end;
@@ -1947,16 +1953,18 @@ begin
       end;
 end;
 
-function TDDDRepositoryRestCommand.ORMAdd(aAggregate: TObject): TCQRSResult;
+function TDDDRepositoryRestCommand.ORMAdd(aAggregate: TObject;
+  aAllFields: boolean): TCQRSResult;
 begin
   if CqrsBeginMethod(qaCommandDirect,result) then
-    ORMPrepareForCommit(soInsert,aAggregate,result);
+    ORMPrepareForCommit(soInsert,aAggregate,result,aAllFields);
 end;
 
-function TDDDRepositoryRestCommand.ORMUpdate(aAggregate: TObject): TCQRSResult;
+function TDDDRepositoryRestCommand.ORMUpdate(aAggregate: TObject;
+  aAllFields: boolean): TCQRSResult;
 begin
   if CqrsBeginMethod(qaCommandOnSelect,result) then
-    ORMPrepareForCommit(soUpdate,aAggregate,result);
+    ORMPrepareForCommit(soUpdate,aAggregate,result,aAllFields);
 end;
 
 procedure TDDDRepositoryRestCommand.ORMEnsureBatchExists;
@@ -1967,10 +1975,12 @@ begin
 end;
 
 procedure TDDDRepositoryRestCommand.ORMPrepareForCommit(
-  aCommand: TSQLOccasion; aAggregate: TObject; var Result: TCQRSResult);
+  aCommand: TSQLOccasion; aAggregate: TObject; var Result: TCQRSResult;
+  aAllFields: boolean);
 var msg: RawUTF8;
     validator: TSynValidate;
     ndx: integer;
+    fields: TSQLFieldBits;
 
   procedure SetValidationError(default: TCQRSResult);
   begin
@@ -2010,9 +2020,12 @@ begin
   end;
   ORMEnsureBatchExists;
   ndx := -1;
+  if aAllFields then
+    fields := ALL_FIELDS else
+    fields := [];
   case aCommand of
-  soInsert: ndx := fBatch.Add(fCurrentORMInstance,true,fFactory.fAggregateID<>nil );
-  soUpdate: ndx := fBatch.Update(fCurrentORMInstance);
+  soInsert: ndx := fBatch.Add(fCurrentORMInstance,true,fFactory.fAggregateID<>nil,fields);
+  soUpdate: ndx := fBatch.Update(fCurrentORMInstance,fields);
   soDelete: ndx := fBatch.Delete(fCurrentORMInstance.IDValue);
   end;
   CqrsSetResultSuccessIf(ndx>=0,Result);
@@ -2114,7 +2127,7 @@ begin
   fDaemon.Rest.BeginCurrentThread(self);
   try
     repeat
-      sleep(fProcessIdleDelay);
+      SleepHiRes(fProcessIdleDelay);
       try
         try
           repeat
@@ -2181,7 +2194,6 @@ constructor TDDDMonitoredDaemon.Create(aRest: TSQLRest);
 begin
   fProcessIdleDelay := 50;
   fProcessLock := TAutoLocker.Create;
-  fProcessTimer.Start;
   if fProcessThreadCount<1 then
     fProcessThreadCount := 1 else
   if fProcessThreadCount>20 then
@@ -2268,13 +2280,14 @@ begin
   Stop(dummy); // ignore any error when stopping
   fProcessTimer.Resume;
   {$ifdef WITHLOG}
-  Log.Log(sllTrace,'Start %',[self],self);
+  if Log<>nil then
+    Log.Log(sllTrace,'Start %',[self],self);
   {$endif}
   CqrsBeginMethod(qaNone,result,cqrsSuccess);
   SetLength(fProcess,fProcessThreadCount);
   for i := 0 to fProcessThreadCount-1 do
     fProcess[i] := fProcessClass.Create(self,i);
-  sleep(1); // some time to actually start the threads
+  SleepHiRes(1); // some time to actually start the threads
 end;
 
 
@@ -2298,7 +2311,7 @@ begin
         fProcessLock.Leave;
       end;
       repeat
-        sleep(5);
+        SleepHiRes(5);
         allfinished := true;
         fProcessLock.Enter;
         try
@@ -2402,7 +2415,8 @@ begin
     CqrsSetResult(cqrsAlreadyExists,result) else
     try
       {$ifdef WITHLOG}
-      log.Log(sllDDDInfo,'Starting',self);
+      if log<>nil then
+        log.Log(sllDDDInfo,'Starting',self);
       {$endif}
       InternalStart;
       fStatus := dsStarted;
@@ -2446,12 +2460,14 @@ begin
     if InternalRetrieveState(Information) then
     try
       {$ifdef WITHLOG}
-      log.Log(sllDDDInfo,'Stopping %',[Information],self);
+      if log<>nil then
+        log.Log(sllDDDInfo,'Stopping %',[Information],self);
       {$endif}
       InternalStop; // always stop
       fStatus := dsStopped;
       {$ifdef WITHLOG}
-      log.Log(sllDDDInfo,'Stopped: %',[Information],self);
+      if log<>nil then
+        log.Log(sllDDDInfo,'Stopped: %',[Information],self);
       {$endif}
       CqrsSetResult(cqrsSuccess,result);
     except
@@ -2474,7 +2490,8 @@ begin
   if InternalIsRunning then
   try
     {$ifdef WITHLOG}
-    log.Log(sllDDDInfo,'Halting',self);
+    if log<>nil then
+      log.Log(sllDDDInfo,'Halting',self);
     {$endif}
     CqrsSetResult(Stop(Information),result);
   except
@@ -2523,7 +2540,7 @@ begin
     end;
     writeln('Press [Enter] to quit');
     ioresult;
-    readln;
+    ConsoleWaitForEnterKey; // for proper Synchronize() work
     {$ifdef LINUX}
     if ioresult<>0 then // e.g. when redirected from "nohup daemon &" command
       WaitUntilHalted;
@@ -2594,7 +2611,7 @@ begin
     1: if fInternalSettings<>nil then begin
         if SQL[10]=' ' then begin
           name := copy(SQL,11,maxInt);
-          if PosEx('=',name)>0 then begin
+          if PosExChar('=',name)>0 then begin
             Split(name,'=',name,value);
             if (name<>'') and (value<>'') then begin
               VariantLoadJSON(status,pointer(value));
@@ -2667,7 +2684,7 @@ begin
         res := Stop(status);
       if res=cqrsSuccess then begin
         if cmd=8 then
-          Sleep(200); // leave some time between stop and start
+          SleepHiRes(200); // leave some time between stop and start
         if cmd<>7 then
           res := Start;
         if res=cqrsSuccess then
